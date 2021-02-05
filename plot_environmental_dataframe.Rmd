@@ -1,0 +1,264 @@
+---
+title: "Environmental Data + Plots"
+author: "Brooke Rose"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output: html_document
+---
+
+# Note: For the final dataset of cleaned plots, I decided to use species codes as the columns (instead of species names). I was having trouble reading the file with species full names. (I still saved a version with full species names)
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(cache=TRUE)
+knitr::opts_chunk$set(message = FALSE)
+knitr::opts_chunk$set(warning = FALSE)
+```
+
+# Introduction
+This Rmarkdown compiles the plot data from all of our sources (Thorne rapids, Thorne releves, and California Fish and Wildlife). I then use the environmental raster stack created in "Climate_processing.Rmd" to extract the values of each environmental predictor at the plot locations.
+
+```{r mac working directory, eval = FALSE}
+# working directory
+wd <- list()
+
+# commonly used paths in my working directory 
+wd$data   <- "/Users/brookerose/Google Drive/Franklin_grant/project/data/"
+wd$output <- "/Users/brookerose/Google Drive/Franklin_grant/project/output/"
+wd$scripts <- "/Users/brookerose/Google Drive/Franklin_grant/project/scripts/"
+wd$software <- "/Users/brookerose/Google Drive/Franklin_grant/project/software/"
+wd$images <- "/Users/brookerose/Google Drive/Franklin_grant/project/images/"
+```
+
+```{r franklin working directory}
+# working directory
+wd <- list()
+
+# commonly used paths in my working directory
+wd$data   <- "/Users/Brooke Rose/Google Drive/Franklin_grant/project/data/"
+wd$output <- "/Users/Brooke Rose/Google Drive/Franklin_grant/project/output/"
+wd$scripts <- "/Users/Brooke Rose/Google Drive/Franklin_grant/project/scripts/"
+wd$software <- "/Users/Brooke Rose/Google Drive/Franklin_grant/project/software/"
+```
+
+```{r load libraries}
+library(XML)
+library(sf)
+library(raster)
+library(dismo)
+library(rgdal)
+library(maptools)
+library(tidyverse)
+library(rstudioapi)
+library(ggcorrplot)
+library(GGally)
+library(mgcv)
+library(gam)
+library(ROCR)
+library(rgbif)
+library(formula.tools)
+library(params)
+library(rasterVis)
+library(viridis)
+library(cowplot)
+library(rcartocolor)
+library(caret)
+library(biomod2)
+library(MASS)
+library(mgcv)
+library(earth)
+library(rpart)
+library(mda)
+library(Hmisc)
+library(randomForest)
+library(PresenceAbsence)
+library(gridExtra)
+library(grid)
+library(kableExtra)
+library(plyr)
+library(dplyr)
+library(vroom)
+```
+
+# Data Preparation
+## 1. Importing environmental data 
+For this project, I am using the coordinate reference system (CRS) from the Basin Characterization Model data. This can be changed later. The BCM data are the 30-year summaries for 1981-2010. These were processed/created in "Climate_processing.Rmd". The environmental data include:
+1. Actual Evapotranspiration (aet) - BCM
+2. Climatic Water Deficit (cwd) - BCM
+3. Maximum Monthly Temperature (tmax) - BCM
+4. Minimum Monthly Temperature (tmin) - BCM
+5. Snowpack - BCM
+6. Potential Evapotranspiration (pet) - BCM
+7. Precipitation (precip) - BCM
+8. Precipitation Dec, Jan, Feb (ppt_djf) - BCM
+9. Precipitation June, July, Aug (ppt_jja) - BCM
+10. Precipitation March, April, May (ppt_mam) - BCM
+11. Precipitation Sep, Oct, Nov (ppt_son) - BCM
+12. Recharge - BCM
+13. Runoff - BCM
+14. pH - gNATSGO
+15. Available Water Holding Capacity (awc) - gNATSGO
+16. Soil Depth (depth) - gNATSGO
+17. Percent clay - gNATSGO
+18. Landform Classes (ergo_landform) - Theobald 2015
+19. Geomorpho - Amatulli et al. 2020
+
+```{r environmental predictors}
+env.stack <- stack(paste0(wd$output, 'predictors/env_stack/BCM1981_2010_CA_CFP_Stack.grd'))
+names(env.stack)
+plot(env.stack)
+```
+
+### Correlation matrix of environmental predictors
+
+```{r}
+env.stack.df <- as.data.frame(env.stack) %>%
+  na.omit() %>%
+  dplyr::select(-runoff, -recharge, -snowpack)
+corr <- round(cor(env.stack.df), 1)
+p.mat <- cor_pmat(env.stack.df)
+ggcorrplot(corr, hc.order = TRUE,
+    type = "lower", p.mat = p.mat)
+ggcorrplot(corr, hc.order = TRUE, type = "lower",
+   lab = TRUE)
+```
+
+## 2. California Floristic Province (CFP) shapefile for mapping and delineating eco-regions for modeling
+
+```{r cfp}
+cfp <- st_read(paste0(wd$data,'shapefiles/CFP/CFP_GIS_California.shp'))
+cfp.trans <- st_transform(cfp, crs = proj4string(env.stack))
+```
+
+## 3. Plot data with presence absence records for study species 
+Here, I compile the plot datasets provide by Jim Thorne and California Fish and Wildlife. Jim Thorne's original files are located in the data/Thorne_plots/ folder and include the 3 Rapid GIS CSV files. The Cal Fish and Wildlife data are in the data/BIOS/Cal_survey_points/ folder and are called "Cal_survey_plots.shp". These data were individually cleaned and processed in "Thorne_relevee_data.Rmd", "Thorne_rapids_data.Rmd", and the "Cal_Survey_Plots_Rosie.Rmd". Processing included converting each dataset to presence/abscence format, removing incorrect/duplicate coordinates and observations. Individual plot id's were retained in case we want information associated with the original plots. 
+
+```{r compiling plot data}
+
+Sys.setenv("VROOM_CONNECTION_SIZE" = 131072 * 10)
+
+cfw_plots <-
+  vroom::vroom(paste0(wd$data, "BIOS/Cal_survey_points/cfw_final_cfp_sp_codes.gz")) %>%
+  mutate(
+    source = "Cal Fish and Wildlife",
+    survey = ifelse(
+      survey_type == 'Transect' |
+        survey_type == 'Releve' |
+        survey_type == 'Multivist Releve' |
+        survey_type == 'Multivisit Transect' |
+        survey_type == 'releve' |
+        survey_type == "Multi-visit releve" |
+        survey_type == "multi-visit transect" |
+        survey_type == 'Relevee',
+      'releve',
+      'rapid'
+    )
+  )
+
+thorne_rapids <- vroom::vroom(paste0(wd$data, "Thorne_plots/final_compiled_rapid_sp_codes.gz")) %>%
+  mutate(
+    source = "Jim Thorne",
+    survey = 'rapid')
+
+thorne_releves <-
+  vroom::vroom(paste0(wd$data, "Thorne_plots/final_compiled_relevee_no_vtm.gz")) %>%
+  mutate(
+    source = "Jim Thorne",
+    survey = 'releve'
+    )
+
+
+# amazing, time saving function for combining data frames with different columns
+# adding coherent releve vs. rapid variable
+all_plots <-
+  dplyr::bind_rows(cfw_plots, thorne_rapids, thorne_releves)
+
+all_plots <- all_plots[!duplicated(all_plots[c('x_coords', 'y_coords')]),] # removing duplicates
+
+vroom::vroom_write(all_plots, paste0(wd$output, 'plots/compiled_plots.gz'))
+```
+
+```{r transforming data into spatial data object}
+all_plots <- vroom::vroom(paste0(wd$output, 'plots/compiled_plots.gz'))
+
+all_plots %>% ggplot(aes(x_coords, y_coords)) + 
+  geom_hex(bins=200) + 
+  coord_equal() + theme_minimal()
+
+plots_sf <- all_plots %>%
+  st_as_sf(coords = c('x_coords', 'y_coords'), crs = 3309, remove = FALSE)
+
+plots_sf <- st_transform(plots_sf, crs = proj4string(env.stack))
+
+ggplot() +
+  geom_sf(data = cfp.trans, fill = "antiquewhite") +
+  geom_sf(data = plots_sf, aes(color = survey), alpha = .5) +
+  labs(title = "All plots in the CFP (50,306 plots)") +
+  theme(title = element_text(color = 'black', size = 20, family = "serif"),
+        text = element_text(size = 20, family = "serif", color = 'black')) +
+  facet_wrap(~source)
+
+ggsave(paste0(wd$data, 'plots/final_plots_map.jpg'))
+
+```
+
+## 4. Extracting environmental data values at plot locations and writing to file
+```{r}
+library(data.table)
+sp.extract <- raster::extract(x = env.stack, y = plots_sf, df = TRUE, sp = TRUE, cellnumbers = TRUE)
+
+sp.data <- st_as_sf(sp.extract, remove = FALSE) %>%
+  st_transform(crs = proj4string(env.stack)) %>%
+  st_set_geometry(NULL)
+
+# removing observations that have NA for these environmental variables (they are generated by BCM and do not have 100% full coverage)
+
+sp.env <- sp.data[ , c("aet", "cwd", "snowpack", "recharge", "runoff")]  
+
+sp.env.full <- sp.data[complete.cases(sp.env), ] %>%
+  tibble::rowid_to_column("ID") # adding unique id for all plots
+
+
+vroom::vroom_write(sp.env.full, paste0(wd$data, 'plots/sp_pres_abs.gz'))
+plots <- vroom::vroom(paste0(wd$data, 'plots/sp_pres_abs.gz'))
+``` 
+
+
+## 5. Test data frame for Santiago
+This data frame includes presence/absence data for Abies magnifica, Queruc engelmanni, Pinus lambertiana, Calocedrus decurrens, and Pinus jeffreyi + extracted environmental variables.
+
+```{r}
+plots <- vroom::vroom(paste0(wd$data, 'plots/sp_pres_abs.gz'))
+
+sp_subset <- plots %>%
+  dplyr::select(
+    ID,
+    source,
+    x_coords,
+    y_coords,
+    ABMA,
+    QUEN,
+    PILA,
+    PIJE,
+    CADE27,
+    aet,
+    cwd,
+    tmax,
+    tmin,
+    snowpack,
+    pet,
+    ppt,
+    ppt_djf,
+    ppt_jja,
+    ppt_mam,
+    ppt_son,
+    recharge,
+    runoff,
+    pH,
+    awc,
+    depth,
+    percent_clay,
+    landform
+  )
+
+vroom::vroom_write(sp_subset, paste0(wd$data, 'plots/test_sp_pres_abs.gz'))
+```

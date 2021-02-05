@@ -1,0 +1,345 @@
+---
+title: "Environmental Data Processing"
+author: "Brooke Rose"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output: html_document
+---
+
+# Introduction
+This Rmarkdown processes and compiles all of the environmental raster data that is used in the NSF Geography and Vulnerability Project. The final raster stack includes these variables for the extent of the California portion of the CFP:
+1. Actual Evapotranspiration (aet) - BCM
+2. Climatic Water Deficit (cwd) - BCM
+3. Maximum Monthly Temperature (tmax) - BCM
+4. Minimum Monthly Temperature (tmin) - BCM
+5. Snowpack - BCM
+6. Potential Evapotranspiration (pet) - BCM
+7. Precipitation (precip) - BCM
+8. Precipitation Dec, Jan, Feb (ppt_djf) - BCM
+9. Precipitation June, July, Aug (ppt_jja) - BCM
+10. Precipitation March, April, May (ppt_mam) - BCM
+11. Precipitation Sep, Oct, Nov (ppt_son) - BCM
+12. Recharge - BCM
+13. Runoff - BCM
+14. pH - gNATSGO
+15. Available Water Holding Capacity (awc) - gNATSGO
+16. Soil Depth (depth) - gNATSGO
+17. Percent clay - gNATSGO
+18. Landform Classes (ergo_landform) - Theobald 2015
+
+I also create a version of the CFP shapefile that only includes the ecoregions within California, for simplicity (CFP_GIS_California_shp). 
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(cache=TRUE)
+knitr::opts_chunk$set(message = FALSE)
+knitr::opts_chunk$set(warning = FALSE)
+```
+
+```{r libraries}
+library(tidyverse)
+theme_set(theme_bw()) # classic dark on white ggplot theme
+library(sf)
+library(maps)
+library(ggrepel)
+library(ggspatial)
+library(lubridate)
+library(rgdal)
+library(leaflet)
+library(raster)
+library(rgdal)
+library(rasterVis)
+library(ggpubr)
+library(extrafont)
+library(ggcorrplot)
+library(ggsn)
+font_import()
+loadfonts(device = "win")
+```
+
+```{r mac working directory, eval = FALSE}
+# Setting directories
+# working directory
+wd <- list()
+
+# commonly used paths in my working directory
+wd$data   <- "/Users/brookerose/Google Drive/Franklin_grant/project/data/"
+wd$output <- "/Users/brookerose/Google Drive/Franklin_grant/project/output/"
+```
+
+```{r franklin working directory}
+# working directory
+wd <- list()
+
+# commonly used paths in my working directory
+wd$data   <- "/Users/Brooke Rose/Google Drive/Franklin_grant/project/data/"
+wd$output <- "/Users/Brooke Rose/Google Drive/Franklin_grant/project/output/"
+wd$scripts <- "/Users/Brooke Rose/Google Drive/Franklin_grant/project/scripts/"
+wd$software <- "/Users/Brooke Rose/Google Drive/Franklin_grant/project/software/"
+```
+
+# Basin Charicterization Model 
+Historical and projected climate and hydrology a 270 meter resolution, which is relevant for watershed-scale evaluation and planning
+These data were downloaded on 11/11/19. Temperature units = Celcius and all other variables = mm. The website provides 30-year summary data for 3 historical/current time periods: 1921-1950; 1951-1980; and 1981-2010. The data area in NAD1983 California Teale Albers Equal Area Projection. 
+Reference: Flint, L. E., A. L. Flint, J. H. Thorne, and R. Boynton. 2013. Fine-scale hydrologic modeling for regional landscape applications: the California Basin Characterization Model development and performance. Ecological Processes 2:1–21.
+
+```{r raster crs}
+# California Albers proj4string
+ref_crs <- '+proj=aea +lat_1=34 +lat_2=40.5 +lat_0=0 +lon_0=-120 +x_0=0 +y_0=-4000000 +ellps=GRS80 +datum=NAD83 +units=m +no_defs'
+```
+
+## 1921-1950
+
+```{r 1921-1950 climate}
+aet21_50 <- raster(paste0(wd$data, 'climate/BCM_1921_1950/aet/aet1921_1950_ave_HST_1574209209.tif'))
+cwd21_50  <- raster(paste0(wd$data, 'climate/BCM_1921_1950/cwd/cwd1921_1950_ave_HST_1574209832.tif'))
+tmax21_50  <- raster(paste0(wd$data, 'climate/BCM_1921_1950/tmax/tmx1921_1950_ave_HST_1574210150.tif'))
+tmin21_50  <- raster(paste0(wd$data, 'climate/BCM_1921_1950/tmin/tmn1921_1950_ave_HST_1574210195.tif'))
+snowpack21_50  <- raster(paste0(wd$data, 'climate/BCM_1921_1950/snowpack/aprpck1921_1950_ave_HST_1574210095.tif'))
+pet21_50  <- raster(paste0(wd$data, 'climate/BCM_1921_1950/pet/pet1921_1950_ave_HST_1574209957.tif'))
+ppt21_50  <- raster(paste0(wd$data, 'climate/BCM_1921_1950/ppt/average/ppt1921_1950_ave_HST_1574209969.tif'))
+ppt_djf21_50  <- raster(paste0(wd$data, 'climate/BCM_1921_1950/ppt/djf/ppt1921_1950djf_ave_HST_1595636546.tif'))
+ppt_jja21_50  <- raster(paste0(wd$data, 'climate/BCM_1921_1950/ppt/jja/ppt1921_1950jja_ave_HST_1595636451.tif'))
+ppt_mam21_50  <- raster(paste0(wd$data, 'climate/BCM_1921_1950/ppt/mam/ppt1921_1950mam_ave_HST_1595636507.tif'))
+ppt_son21_50  <- raster(paste0(wd$data, 'climate/BCM_1921_1950/ppt/son/ppt1921_1950son_ave_HST_1595636421.tif'))
+recharge21_50  <- raster(paste0(wd$data, 'climate/BCM_1921_1950/recharge/rch1921_1950_ave_HST_1574210048.tif'))
+runoff21_50  <- raster(paste0(wd$data, 'climate/BCM_1921_1950/runoff/run1921_1950_ave_HST_1574210081.tif'))
+
+# stacking 1951-1981 BCM data and writing stack to file
+bcm_data21_50  <- stack(aet21_50 , cwd21_50 , tmax21_50 , tmin21_50 , snowpack21_50 , pet21_50 , ppt21_50 , ppt_djf21_50 , ppt_jja21_50 , ppt_mam21_50 , ppt_son21_50 , recharge21_50 , runoff21_50 )
+names(bcm_data21_50) <- c('aet', 'cwd', 'tmax', 'tmin', 'snowpack', 'pet', 'ppt', 'ppt_djf', 'ppt_jja', 'ppt_mam', 'ppt_son', 'recharge', 'runoff')
+
+crs(bcm_data21_50) <- ref_crs
+writeRaster(bcm_data21_50 , paste0(wd$data,'climate/BCM_1921_1950/Stacks/bcm_1921_1950_stack.grd'), format = 'raster', overwrite = TRUE)
+bcm_stack21_50<- stack(paste0(wd$data, 'climate/BCM_1921_1950/Stacks/bcm_1921_1950_stack.grd'))
+
+plot(bcm_stack21_50)
+stack21_50.df <- as.data.frame(bcm_stack21_50) %>%
+  na.omit() 
+corr <- round(cor(stack21_50.df), 1)
+p.mat <- cor_pmat(stack21_50.df)
+ggcorrplot(corr, hc.order = TRUE, type = "lower",
+   lab = TRUE, title = "Correlation matrix of climate data 1921-1950")
+```
+
+## 1951-1980
+
+```{r 1951-1980}
+aet51_80 <- raster(paste0(wd$data, 'climate/BCM_1951_1981/aet/aet1951_1980_ave_HST_1574206944.tif'))
+cwd51_80 <- raster(paste0(wd$data, 'climate/BCM_1951_1981/cwd/cwd1951_1980_ave_HST_1574207362.tif'))
+tmax51_80 <- raster(paste0(wd$data, 'climate/BCM_1951_1981/tmax/tmx1951_1980_ave_HST_1574207734.tif'))
+tmin51_80 <- raster(paste0(wd$data, 'climate/BCM_1951_1981/tmin/tmn1951_1980_ave_HST_1574208011.tif'))
+snowpack51_80 <- raster(paste0(wd$data, 'climate/BCM_1951_1981/snowpack/aprpck1951_1980_ave_HST_1574207685.tif'))
+pet51_80 <- raster(paste0(wd$data, 'climate/BCM_1951_1981/pet/pet1951_1980_ave_HST_1574207088.tif'))
+ppt51_80 <- raster(paste0(wd$data, 'climate/BCM_1951_1981/ppt/average/ppt1951_1980_ave_HST_1574207384.tif'))
+ppt_djf51_80 <- raster(paste0(wd$data, 'climate/BCM_1951_1981/ppt/djf/ppt1951_1980djf_ave_HST_1595635668.tif'))
+ppt_jja51_80 <- raster(paste0(wd$data, 'climate/BCM_1951_1981/ppt/jja/ppt1951_1980jja_ave_HST_1595635792.tif'))
+ppt_mam51_80 <- raster(paste0(wd$data, 'climate/BCM_1951_1981/ppt/mam/ppt1951_1980mam_ave_HST_1595635867.tif'))
+ppt_son51_80 <- raster(paste0(wd$data, 'climate/BCM_1951_1981/ppt/son/ppt1951_1980son_ave_HST_1595636007.tif'))
+recharge51_80 <- raster(paste0(wd$data, 'climate/BCM_1951_1981/recharge/rch1951_1980_ave_HST_1574207402.tif'))
+runoff51_80 <- raster(paste0(wd$data, 'climate/BCM_1951_1981/runoff/run1951_1980_ave_HST_1574207655.tif'))
+
+# stacking 1951-1981 BCM data and writing stack to file
+bcm_data51_80 <- stack(aet51_80, cwd51_80, tmax51_80, tmin51_80, snowpack51_80, pet51_80, ppt51_80, ppt_djf51_80, ppt_jja51_80, ppt_mam51_80, ppt_son51_80, recharge51_80, runoff51_80)
+names(bcm_data51_80) <- c('aet', 'cwd', 'tmax', 'tmin', 'snowpack', 'pet', 'ppt', 'ppt_djf', 'ppt_jja', 'ppt_mam', 'ppt_son', 'recharge', 'runoff')
+
+crs(bcm_data51_80) <- ref_crs
+writeRaster(bcm_data51_80, paste0(wd$data, 'climate/BCM_1951_1981/Stacks/bcm_1951_1981_stack.grd'), format = 'raster', overwrite = TRUE)
+bcm_stack51_80 <- stack(paste0(wd$data, 'climate/BCM_1951_1981/Stacks/bcm_1951_1981_stack.grd'))
+
+plot(bcm_stack51_80)
+
+stack51_80.df <- as.data.frame(bcm_stack51_80) %>%
+  na.omit() 
+corr <- round(cor(stack51_80.df), 1)
+p.mat <- cor_pmat(stack51_80.df)
+ggcorrplot(corr, hc.order = TRUE, type = "lower",
+   lab = TRUE, title = "Correlation matrix of climate data 1951-1980")
+```
+
+## 1981-2010
+
+```{r 1981-2010 climate data}
+aet81_10 <- raster(paste0(wd$data,'climate/BCM_1981_2010/aet/aet1981_2010_ave_HST_1573498620.tif'))
+cwd81_10 <- raster(paste0(wd$data,'climate/BCM_1981_2010/cwd/cwd1981_2010_ave_HST_1573498984.tif'))
+tmax81_10 <- raster(paste0(wd$data,'climate/BCM_1981_2010/tmax/tmx1981_2010_ave_HST_1573502276.tif'))
+tmin81_10 <- raster(paste0(wd$data,'climate/BCM_1981_2010/tmin/tmn1981_2010_ave_HST_1573502157.tif'))
+snowpack81_10 <- raster(paste0(wd$data,'climate/BCM_1981_2010/snowpack/aprpck1981_2010_ave_HST_1574288967.tif'))
+pet81_10 <- raster(paste0(wd$data, 'climate/BCM_1981_2010/pet/pet1981_2010_ave_HST_1573502738.tif'))
+ppt81_10 <- raster(paste0(wd$data, 'climate/BCM_1981_2010/ppt/average/ppt1981_2010_ave_HST_1573502574.tif'))
+ppt_djf81_10 <- raster(paste0(wd$data, 'climate/BCM_1981_2010/ppt/djf/ppt1981_2010djf_ave_HST_1595634789.tif'))
+ppt_jja81_10 <- raster(paste0(wd$data, 'climate/BCM_1981_2010/ppt/jja/ppt1981_2010jja_ave_HST_1595635039.tif'))
+ppt_mam81_10 <- raster(paste0(wd$data, 'climate/BCM_1981_2010/ppt/mam/ppt1981_2010mam_ave_HST_1595634866.tif'))
+ppt_son81_10 <- raster(paste0(wd$data, 'climate/BCM_1981_2010/ppt/son/ppt1981_2010son_ave_HST_1595635194.tif'))
+recharge81_10 <- raster(paste0(wd$data, 'climate/BCM_1981_2010/recharge/rch1981_2010_ave_HST_1573502478.tif'))
+runoff81_10 <- raster(paste0(wd$data, 'climate/BCM_1981_2010/runoff/run1981_2010_ave_HST_1573502361.tif'))
+
+
+# stacking 1981-2010 BCM data and writing stack to file
+bcm_data81_10 <- stack(aet81_10, cwd81_10, tmax81_10, tmin81_10, snowpack81_10, pet81_10, ppt81_10, ppt_djf81_10, ppt_jja81_10, ppt_mam81_10, ppt_son81_10, recharge81_10, runoff81_10)
+names(bcm_data81_10) <- c('aet', 'cwd', 'tmax', 'tmin', 'snowpack', 'pet', 'ppt', 'ppt_djf', 'ppt_jja', 'ppt_mam', 'ppt_son', 'recharge', 'runoff')
+
+crs(bcm_data81_10) <- ref_crs
+writeRaster(bcm_data81_10, paste0(wd$data, 'climate/BCM_1981_2010/Stacks/bcm1981_2010_stack.grd'), format = "raster", overwrite = TRUE)
+bcm_stack81_10 <- stack(paste0(wd$data, 'climate/BCM_1981_2010/Stacks/bcm1981_2010_stack.grd'))
+
+plot(bcm_stack81_10)
+
+stack81_10.df <- as.data.frame(bcm_stack81_10) %>%
+  na.omit()
+corr <- round(cor(stack81_10.df), 1)
+p.mat <- cor_pmat(stack81_10.df)
+ggcorrplot(corr, hc.order = TRUE, type = "lower",
+   lab = TRUE, title = "Correlation matrix of climate data 1981-2010")
+```
+
+# California Floristic Province
+```{r cfp and US}
+us.states <- st_read(paste0(wd$data, 'shapefiles/tl_2019_us_state/tl_2019_us_state.shp'))
+us.trans <- st_transform(us.states, crs(bcm_stack81_10)) %>%
+  filter(NAME == "Oregon" | NAME == "California" | NAME == "Nevada")
+
+cfp <- st_read(paste0(wd$data,'shapefiles/CFP/CFP_GIS.shp'))
+cfp.trans <- st_transform(cfp, crs(bcm_stack81_10))
+cfp.bb <- st_as_sfc(st_bbox(cfp.trans))
+
+cfp.area <- ggplot() +
+  geom_sf(data = us.trans, color = "black", fill = "papayawhip") +
+  geom_sf(data = cfp.trans %>% filter(JEP_REG != 'Baja CFP' & JEP_REG != 'Oregon CFP' & JEP_REG != 'Nevada CFP'), aes(fill = JEP_REG)) +
+  xlab("Longitude") + ylab("Latitude") +
+  theme(legend.title = element_blank(),
+        legend.text = element_text(size = 7),
+        legend.direction = "vertical", legend.position = "right", legend.key = element_blank(), 
+        legend.background = element_rect(fill = "white"),
+        text = element_text(size = 5, family = "serif", color = 'black'),
+        axis.text.x = element_text(color = 'black', size = 5),
+        axis.text.y = element_text(color = 'black', size = 5)) +
+  scale_fill_brewer(type = "qual", palette = "Spectral") +
+  scale_color_brewer(type = "qual", palette = "Spectral") +
+  north(us.trans, location = 'topright', scale = .11) +
+  ggsn::scalebar(cfp.trans, dist = 250, dist_unit = "km", transform = FALSE, size = 5, family = 'serif')
+cfp.area
+
+cfp_california <- cfp.trans %>% 
+  filter(JEP_REG != "Nevada CFP" & JEP_REG != "Baja CFP" & JEP_REG != "Oregon CFP")
+st_write(cfp_california, paste0(wd$data,'shapefiles/CFP/CFP_GIS_California.shp'), delete_layer = TRUE)
+```
+
+
+# Soil data
+These were downloaded from the gNATSGO database - includes pH, available water holding capacity, depth, and percent clay. These data were initially processed and resampled in ArcGIS using the toolbox and guide provided by gNATSGO.
+
+Reference: Soil Survey Staff. Gridded National Soil Survey Geographic (gNATSGO) Database for California. United States Department of Agriculture, Natural Resources Conservation Service. Available online at https://nrcs.app.box.com/v/soils. February 10, 2020 (FY2020 official release).
+
+```{r soil data}
+# Substrate data from the gNATSGO database
+pH_270m  <- raster(paste0(wd$data, 'substrate/gNATSGO_CA_outputs/pH_270m_Lkup.tif'))
+awc_270m <- raster(paste0(wd$data, 'substrate/gNATSGO_CA_outputs/AWC_270m_Lkup.tif'))
+depth_270m <- raster(paste0(wd$data, 'substrate/gNATSGO_CA_outputs/Depth_270m_Lkup.tif'))
+percent_clay <- raster(paste0(wd$data, 'substrate/gNATSGO_CA_outputs/soil_rasters/pct_clay.tif'))
+
+soil_stack <- stack(pH_270m, awc_270m, depth_270m, percent_clay)
+
+soil_proj <- projectRaster(soil_stack, bcm_stack81_10) #projecting to NAD1983 Teale Albers
+plot(soil_proj)
+writeRaster(soil_proj, paste0(wd$output, 'predictors/soil_stack270m.tif'), overwrite = TRUE)
+```
+
+
+# Theobald Landform data (Ecolgocially relevant ) (for the full CFP)
+The classes include: "Peak/ridge (warm)", "Peak/ridge", "Peak/ridge (cool)", "Mountain/divide", "Cliff/steep slope", 
+"Upper slope (warm)", "Upper slope", "Upper slope (cool)", "Upper slope (flat)", "Lower slope (warm)", "Lower slope",
+"Lower slope (cool)", "Lower slope(flat)", "Valley", "Valley (narrow)"
+
+```{r landforms}
+landform <- raster(paste0(wd$data, 'terrain/Ecologically_re/ergo_mosaic/ergo_mosaic_CFP.tif'))
+
+landform_proj <- projectRaster(landform, bcm_stack81_10)
+landform_round <- round(landform_proj)
+landform_factor <- as.factor(landform_round)
+landform_rat <- ratify(landform_factor, count = TRUE)
+levels(landform_rat)[[1]] = cbind(levels(landform_rat)[[1]], 
+                              landform = c("None", "Peak/ridge (warm)", "Peak/ridge", "Peak/ridge (cool)",
+                                           "Mountain/divide", "Cliff/steep slope", "Upper slope (warm)", "Upper slope",
+                                           "Upper slope (cool)", "Upper slope (flat)", "Lower slope (warm)", "Lower slope",
+                                           "Lower slope (cool)", "Lower slope(flat)", "Valley", "Valley (narrow)"))
+plot(landform_rat)
+hist(landform_rat)
+
+writeRaster(landform_rat, paste0(wd$output, 'predictors/landforms.tif'), overwrite = TRUE)
+```
+
+# Geomorpho90m_v.1.0 Amatulli et al. 2020 - geomorphon classes
+These data are from Shared Google Drive made by the authors in folder geomorphometry_90m_wgs84
+The naming scheme: variable abbreviation_resolution_DEM source layers_tiling system.format
+Data are for the Geomorphological forms (geomorphons/geom) consist of 10 classes 
+Based on pattern recognition (as opposed to differential geometry)
+Features: 1-flat, 2-peak/summit, 3-ridge, 4-shoulder, 5-spur, 6-slope, 7-hollow, 8-footslope, 9-valley, 10-pit/depression. 
+*Excluding these from the final raster stack because we are not using them in our models*
+
+```{r geomorpho}
+geomorpho <- raster(paste0(wd$data, 'terrain/geomorpho90m_v.1.0/geomorphometry_90m_wgs84/mosaic/mosaic_raster.tif'))
+geomorpho_proj <- projectRaster(geomorpho, bcm_stack81_10)
+plot(geomorpho_proj)
+
+writeRaster(geomorpho_proj, paste0(wd$output, 'predictors/geomorphons.tif'), overwrite = TRUE)
+```
+
+# Cropping environmental predictors to CFP extent
+I use lists of rasters so that I can use lapply to crop them to the extent of the CFP
+
+
+```{r env raster crop}
+soil_proj <- stack(paste0(wd$output, 'predictors/soil_stack270m.tif'))
+landform_rat <- raster(paste0(wd$output, 'predictors/landforms.tif'))
+
+env_rasters <- list(soil_proj, landform_rat)
+
+# Using lapply to crop and mask rasters
+env_crops <- lapply(env_rasters, crop, y= cfp_california)
+env_masks <- lapply(env_crops, raster::mask, cfp_california)
+env_stack <- stack(env_masks)
+env_stack[[5]] <- resample(env_stack[[5]], env_stack[[1]], method = 'ngb')
+names(env_stack) <- c('pH', 'awc', 'depth', 'percent_clay', 'landform')
+
+env_stack_proj <- projectRaster(env_stack, crs = '+proj=aea +lat_1=34 +lat_2=40.5 +lat_0=0 +lon_0=-120 +x_0=0 +y_0=-4000000 +ellps=GRS80 +datum=NAD83 +units=m +no_defs') 
+plot(env_stack_proj)
+# This is the coordinate reference system for California Teal Alber's Equal Area Projection (differences between model 
+# coefficients that use rasters with lat-long vs. equal area is small, but equal-area projections are recommended 
+# by Budic, Didenko, and Dormann 2016 - Ecology and Evolution)
+writeRaster(env_stack_proj, paste0(wd$output, 'predictors/env_stack/CFP_soil_terrain_stack.grd'), overwrite = TRUE)
+writeRaster(env_stack_proj, paste0(wd$output, 'predictors/env_stack/CFP_soil_terrain_stack.tif'), overwrite = TRUE)
+```
+
+
+```{r climate raster crop}
+climate_rasters <- list(bcm_stack21_50, bcm_stack51_80, bcm_stack81_10)
+climate_crops <- lapply(climate_rasters, crop, y = cfp_california)
+climate_masks <- lapply(climate_crops, raster::mask, cfp_california)
+
+climate_proj <- lapply(climate_masks, projectRaster, crs = '+proj=aea +lat_1=34 +lat_2=40.5 +lat_0=0 +lon_0=-120 +x_0=0 +y_0=-4000000 +ellps=GRS80 +datum=NAD83 +units=m +no_defs')
+
+cfp21_50 <- stack(climate_proj[[1]], env_stack_proj)
+cfp51_80 <- stack(climate_proj[[2]], env_stack_proj)
+cfp81_10 <- stack(climate_proj[[3]], env_stack_proj)
+```
+
+# Map of environmental predictors to be used for SDM (1981-2010 climate)
+```{r}
+plot(cfp81_10)
+```
+
+```{r write rasters california cfp}
+writeRaster(cfp21_50, paste0(wd$output, 'predictors/env_stack/BCM1921_1950_CA_CFP_Stack.grd'), overwrite = TRUE)
+writeRaster(cfp51_80, paste0(wd$output, 'predictors/env_stack/BCM1951_1980_CA_CFP_Stack.grd'), overwrite = TRUE)
+writeRaster(cfp81_10, paste0(wd$output, 'predictors/env_stack/BCM1981_2010_CA_CFP_Stack.grd'), overwrite = TRUE)
+```
+```
+
+
+```{r write rasters}
+# These rasters have the extent of the full CFP (somewhat inconsistent)
+#writeRaster(cfp21_50, paste0(wd$output, 'predictors/env_stack/BCM1921_1950_CFP_Stack.grd'), overwrite = TRUE)
+#writeRaster(cfp51_80, paste0(wd$output, 'predictors/env_stack/BCM1951_1980_CFP_Stack.grd'), overwrite = TRUE)
+#writeRaster(cfp81_10, paste0(wd$output, 'predictors/env_stack/BCM1981_2010_CFP_Stack.grd'), overwrite = TRUE)
+```
+
