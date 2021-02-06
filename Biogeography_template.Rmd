@@ -9,11 +9,14 @@ output:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE)
-knitr::opts_chunk$set(cache=TRUE)
-knitr::opts_chunk$set(message = FALSE)
-knitr::opts_chunk$set(warning = FALSE)
-knitr::opts_chunk$set(fig.width=12, fig.height=8) 
+knitr::opts_chunk$set(
+  cache = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  cache.lazy = FALSE,
+  echo = FALSE,
+  fig.fullwidth = TRUE
+)
 ```
 
 # Description
@@ -90,7 +93,7 @@ wd$software <- "/Users/brookerose/Google Drive/Franklin_grant/project/software/"
 wd$images <- "/Users/brookerose/Google Drive/Franklin_grant/project/images/"
 ```
 
-```{r include=FALSE}
+```{r franklin working directory}
 # working directory
 wd <- list()
 
@@ -108,16 +111,16 @@ loadfonts(device = "win")
 The "sp" variable should match one of the USDA plant codes for our target species. These are columns within our compiled plot database. The "scien.nm" should be the scientific name of the species. I use this later to download GBIF data for that species. This makes species modeling easier and reduces chance of error. See the species_region_v5_expanded Google Sheets in Shared Drive for the codes
 
 ```{r target species}
-#sp <- plot.trans$ABMA # this has to come from a variable within plot.trans to work 
 sp.code <- 'ABMA'
 scien.nm <- 'Abies magnifica'
 sp.file.nm <- 'Abies_magnifica'
-cal.flor.nm <- 'AbiesMagnifica' # check file and take the part before "_CalFlroa_4_17_2020"
+cal.flor.nm <- 'AbiesMagnifica'
 
-#The code below creates the output folder for the final plot data that will be generated in this Rmarkdown. 
+#The code below creates the output folder for the final plot data that will be generated in this Rmarkdown.
 
-if(!dir.exists(paste0(wd$output, paste('plots/', sp.file.nm, '/', sep='')))){ 
-  dir.create(paste0(wd$output, paste('plots/', sp.file.nm, '/', sep='')))
+if (!dir.exists(paste0(wd$output, paste('plots/', sp.file.nm, '/', sep =
+                                        '')))) {
+  dir.create(paste0(wd$output, paste('plots/', sp.file.nm, '/', sep = '')))
 }
 ```
 
