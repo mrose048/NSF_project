@@ -27,17 +27,55 @@ To run this document, the user needs access to
 5. CalFlora data: data/CalFlora/   (I recommend looking through these data first to make sure you kow the species name that is used in the file format, the data were downloaded on 4/17/2020 so this is part of the file name)
 
 ```{r load libraries}
-suppressWarnings(library(plyr)); suppressWarnings(library(XML)); suppressWarnings(library(sf)); suppressWarnings(library(raster)); suppressWarnings(library(dismo)); 
-suppressWarnings(library(rgdal)); suppressWarnings(library(maptools)); suppressWarnings(library(tidyverse)); suppressWarnings(library(rstudioapi)); suppressWarnings(library(ggcorrplot)); suppressWarnings(library(GGally)); suppressWarnings(library(mgcv)); suppressWarnings(library(gam)); 
-suppressWarnings(library(ROCR)); suppressWarnings(library(rgbif)); suppressWarnings(library(formula.tools)); suppressWarnings(library(params)); 
-suppressWarnings(library(rasterVis)); suppressWarnings(library(viridis)); suppressWarnings(library(cowplot)); suppressWarnings(library(rcartocolor)); 
-suppressWarnings(library(caret)); suppressWarnings(library(biomod2));suppressWarnings(library(MASS)); suppressWarnings(library(mgcv)); 
-suppressWarnings(library(earth)); suppressWarnings(library(rpart));suppressWarnings(library(mda)); suppressWarnings(library(Hmisc)); 
-suppressWarnings(library(randomForest)); suppressWarnings(library(PresenceAbsence)); suppressWarnings(library(gridExtra)); 
-suppressWarnings(library(grid)); suppressWarnings(library(kableExtra)); suppressWarnings(library(biomod2)); suppressWarnings(library(MASS)); 
-suppressWarnings(library(mgcv)); suppressWarnings(library(earth)); suppressWarnings(library(rpart)); suppressWarnings(library(mda)); 
-suppressWarnings(library(Hmisc)) ;suppressWarnings(library(gbm)); suppressWarnings(library(kernlab)); suppressWarnings(library(nnet)); 
-suppressWarnings(library(e1071)); suppressWarnings(library(lwgeom)); suppressWarnings(library(patchwork)); suppressWarnings(library(extrafont)); suppressWarnings(library(ggpubr)) 
+library(plyr)
+library(XML)
+library(sf)
+library(raster)
+library(dismo)
+library(rgdal)
+library(maptools)
+library(tidyverse)
+library(rstudioapi)
+library(ggcorrplot)
+library(GGally)
+library(mgcv)
+library(gam)
+library(ROCR)
+library(rgbif)
+library(formula.tools)
+library(params)
+library(rasterVis)
+library(viridis)
+library(cowplot)
+library(rcartocolor)
+library(caret)
+library(biomod2)
+library(MASS)
+library(mgcv)
+library(earth)
+library(rpart)
+library(mda)
+library(Hmisc)
+library(randomForest)
+library(PresenceAbsence)
+library(gridExtra)
+library(grid)
+library(kableExtra)
+library(biomod2)
+library(MASS)
+library(mgcv)
+library(earth)
+library(rpart)
+library(mda)
+library(Hmisc)
+library(gbm)
+library(kernlab)
+library(nnet)
+library(e1071)
+library(lwgeom)
+library(patchwork)
+library(extrafont)
+library(ggpubr) 
 ```
 
 ```{r set working directory, eval = FALSE}
