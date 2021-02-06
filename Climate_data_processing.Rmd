@@ -2,11 +2,16 @@
 title: "Environmental Data Processing"
 author: "Brooke Rose"
 date: "`r format(Sys.time(), '%B %d, %Y')`"
-output: html_document
+output:
+  html_document:
+    theme: journal
+    highlight: espresso
+bibliography: paperpile.bib
 ---
 
 # Introduction
 This Rmarkdown processes and compiles all of the environmental raster data that is used in the NSF Geography and Vulnerability Project. The final raster stack includes these variables for the extent of the California portion of the CFP:
+
 1. Actual Evapotranspiration (aet) - BCM
 2. Climatic Water Deficit (cwd) - BCM
 3. Maximum Monthly Temperature (tmax) - BCM
@@ -33,9 +38,10 @@ knitr::opts_chunk$set(echo = FALSE)
 knitr::opts_chunk$set(cache=TRUE)
 knitr::opts_chunk$set(message = FALSE)
 knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(fig.fullwidth=TRUE)
 ```
 
-```{r libraries}
+```{r libraries, include = FALSE}
 library(tidyverse)
 theme_set(theme_bw()) # classic dark on white ggplot theme
 library(sf)
@@ -75,12 +81,15 @@ wd$data   <- "/Users/Brooke Rose/Google Drive/Franklin_grant/project/data/"
 wd$output <- "/Users/Brooke Rose/Google Drive/Franklin_grant/project/output/"
 wd$scripts <- "/Users/Brooke Rose/Google Drive/Franklin_grant/project/scripts/"
 wd$software <- "/Users/Brooke Rose/Google Drive/Franklin_grant/project/software/"
+wd$rmds <- "/Users/Brooke Rose/Google Drive/Franklin_grant/project/rmds/"
 ```
 
 # Basin Charicterization Model 
 Historical and projected climate and hydrology a 270 meter resolution, which is relevant for watershed-scale evaluation and planning
 These data were downloaded on 11/11/19. Temperature units = Celcius and all other variables = mm. The website provides 30-year summary data for 3 historical/current time periods: 1921-1950; 1951-1980; and 1981-2010. The data area in NAD1983 California Teale Albers Equal Area Projection. 
-Reference: Flint, L. E., A. L. Flint, J. H. Thorne, and R. Boynton. 2013. Fine-scale hydrologic modeling for regional landscape applications: the California Basin Characterization Model development and performance. Ecological Processes 2:1–21.
+Reference: Flint, L. E., A. L. Flint, J. H. Thorne, and R. Boynton. 2013. Fine-scale hydrologic modeling for regional landscape applications: the California Basin Characterization Model development and performance. Ecological Processes 2:1–21. 
+
+Data are available at: (http://climate.calcommons.org/).
 
 ```{r raster crs}
 # California Albers proj4string
@@ -89,7 +98,7 @@ ref_crs <- '+proj=aea +lat_1=34 +lat_2=40.5 +lat_0=0 +lon_0=-120 +x_0=0 +y_0=-40
 
 ## 1921-1950
 
-```{r 1921-1950 climate}
+```{r 1921-1950 climate, fig.fullwidth=TRUE}
 aet21_50 <- raster(paste0(wd$data, 'climate/BCM_1921_1950/aet/aet1921_1950_ave_HST_1574209209.tif'))
 cwd21_50  <- raster(paste0(wd$data, 'climate/BCM_1921_1950/cwd/cwd1921_1950_ave_HST_1574209832.tif'))
 tmax21_50  <- raster(paste0(wd$data, 'climate/BCM_1921_1950/tmax/tmx1921_1950_ave_HST_1574210150.tif'))
@@ -193,7 +202,8 @@ ggcorrplot(corr, hc.order = TRUE, type = "lower",
 ```
 
 # California Floristic Province
-```{r cfp and US}
+These are the 8 ecoregions of the CFP that are fully within the state of California. 
+```{r cfp and US, include = FALSE}
 us.states <- st_read(paste0(wd$data, 'shapefiles/tl_2019_us_state/tl_2019_us_state.shp'))
 us.trans <- st_transform(us.states, crs(bcm_stack81_10)) %>%
   filter(NAME == "Oregon" | NAME == "California" | NAME == "Nevada")
@@ -201,32 +211,33 @@ us.trans <- st_transform(us.states, crs(bcm_stack81_10)) %>%
 cfp <- st_read(paste0(wd$data,'shapefiles/CFP/CFP_GIS.shp'))
 cfp.trans <- st_transform(cfp, crs(bcm_stack81_10))
 cfp.bb <- st_as_sfc(st_bbox(cfp.trans))
-
-cfp.area <- ggplot() +
-  geom_sf(data = us.trans, color = "black", fill = "papayawhip") +
-  geom_sf(data = cfp.trans %>% filter(JEP_REG != 'Baja CFP' & JEP_REG != 'Oregon CFP' & JEP_REG != 'Nevada CFP'), aes(fill = JEP_REG)) +
-  xlab("Longitude") + ylab("Latitude") +
-  theme(legend.title = element_blank(),
-        legend.text = element_text(size = 7),
-        legend.direction = "vertical", legend.position = "right", legend.key = element_blank(), 
-        legend.background = element_rect(fill = "white"),
-        text = element_text(size = 5, family = "serif", color = 'black'),
-        axis.text.x = element_text(color = 'black', size = 5),
-        axis.text.y = element_text(color = 'black', size = 5)) +
-  scale_fill_brewer(type = "qual", palette = "Spectral") +
-  scale_color_brewer(type = "qual", palette = "Spectral") +
-  north(us.trans, location = 'topright', scale = .11) +
-  ggsn::scalebar(cfp.trans, dist = 250, dist_unit = "km", transform = FALSE, size = 5, family = 'serif')
-cfp.area
-
 cfp_california <- cfp.trans %>% 
   filter(JEP_REG != "Nevada CFP" & JEP_REG != "Baja CFP" & JEP_REG != "Oregon CFP")
 st_write(cfp_california, paste0(wd$data,'shapefiles/CFP/CFP_GIS_California.shp'), delete_layer = TRUE)
 ```
 
+```{r cfp map}
+cfp.area <- ggplot() +
+  geom_sf(data = us.trans, color = "black", fill = "papayawhip") +
+  geom_sf(data = cfp.trans %>% filter(JEP_REG != 'Baja CFP' & JEP_REG != 'Oregon CFP' & JEP_REG != 'Nevada CFP'), aes(fill = JEP_REG)) +
+  xlab("Longitude") + ylab("Latitude") +
+  theme(legend.title = element_blank(),
+        legend.text = element_text(size = 10),
+        legend.direction = "vertical", legend.position = "right", legend.key = element_blank(), 
+        legend.background = element_rect(fill = "white"),
+        text = element_text(size = 8, family = "serif", color = 'black'),
+        axis.text.x = element_text(color = 'black', size = 8),
+        axis.text.y = element_text(color = 'black', size = 8)) +
+  scale_fill_brewer(type = "qual", palette = "Spectral") +
+  scale_color_brewer(type = "qual", palette = "Spectral") +
+  north(us.trans, location = 'topright', scale = .11) +
+  ggsn::scalebar(cfp.trans, dist = 250, dist_unit = "km", transform = FALSE, st.size = 3, family = 'serif')
+cfp.area
+
+```
 
 # Soil data
-These were downloaded from the gNATSGO database - includes pH, available water holding capacity, depth, and percent clay. These data were initially processed and resampled in ArcGIS using the toolbox and guide provided by gNATSGO.
+These were downloaded from the Gridded National Soil Survey Geographic Database gNATSGO database - includes pH, available water holding capacity, depth, and percent clay. These data were originally at a 10-meter resolution; however I resampled them to 270-meter resolution in ArcGIS using the toolbox and guide provided by gNATSGO. 
 
 Reference: Soil Survey Staff. Gridded National Soil Survey Geographic (gNATSGO) Database for California. United States Department of Agriculture, Natural Resources Conservation Service. Available online at https://nrcs.app.box.com/v/soils. February 10, 2020 (FY2020 official release).
 
@@ -245,10 +256,8 @@ writeRaster(soil_proj, paste0(wd$output, 'predictors/soil_stack270m.tif'), overw
 ```
 
 
-# Theobald Landform data (Ecolgocially relevant ) (for the full CFP)
-The classes include: "Peak/ridge (warm)", "Peak/ridge", "Peak/ridge (cool)", "Mountain/divide", "Cliff/steep slope", 
-"Upper slope (warm)", "Upper slope", "Upper slope (cool)", "Upper slope (flat)", "Lower slope (warm)", "Lower slope",
-"Lower slope (cool)", "Lower slope(flat)", "Valley", "Valley (narrow)"
+# Theobald Landform data 
+[@Theobald2015-um]
 
 ```{r landforms}
 landform <- raster(paste0(wd$data, 'terrain/Ecologically_re/ergo_mosaic/ergo_mosaic_CFP.tif'))
@@ -262,19 +271,20 @@ levels(landform_rat)[[1]] = cbind(levels(landform_rat)[[1]],
                                            "Mountain/divide", "Cliff/steep slope", "Upper slope (warm)", "Upper slope",
                                            "Upper slope (cool)", "Upper slope (flat)", "Lower slope (warm)", "Lower slope",
                                            "Lower slope (cool)", "Lower slope(flat)", "Valley", "Valley (narrow)"))
+knitr::kable(levels(landform_rat))
+
 plot(landform_rat)
-hist(landform_rat)
 
 writeRaster(landform_rat, paste0(wd$output, 'predictors/landforms.tif'), overwrite = TRUE)
 ```
 
-# Geomorpho90m_v.1.0 Amatulli et al. 2020 - geomorphon classes
+# Geomorpho90m_v.1.0 (Amatulli et al. 2020)
 These data are from Shared Google Drive made by the authors in folder geomorphometry_90m_wgs84
 The naming scheme: variable abbreviation_resolution_DEM source layers_tiling system.format
 Data are for the Geomorphological forms (geomorphons/geom) consist of 10 classes 
 Based on pattern recognition (as opposed to differential geometry)
 Features: 1-flat, 2-peak/summit, 3-ridge, 4-shoulder, 5-spur, 6-slope, 7-hollow, 8-footslope, 9-valley, 10-pit/depression. 
-*Excluding these from the final raster stack because we are not using them in our models*
+*Excluding these from the final raster stack because we are not using them in our models* 
 
 ```{r geomorpho}
 geomorpho <- raster(paste0(wd$data, 'terrain/geomorpho90m_v.1.0/geomorphometry_90m_wgs84/mosaic/mosaic_raster.tif'))
@@ -283,10 +293,6 @@ plot(geomorpho_proj)
 
 writeRaster(geomorpho_proj, paste0(wd$output, 'predictors/geomorphons.tif'), overwrite = TRUE)
 ```
-
-# Cropping environmental predictors to CFP extent
-I use lists of rasters so that I can use lapply to crop them to the extent of the CFP
-
 
 ```{r env raster crop}
 soil_proj <- stack(paste0(wd$output, 'predictors/soil_stack270m.tif'))
@@ -302,14 +308,13 @@ env_stack[[5]] <- resample(env_stack[[5]], env_stack[[1]], method = 'ngb')
 names(env_stack) <- c('pH', 'awc', 'depth', 'percent_clay', 'landform')
 
 env_stack_proj <- projectRaster(env_stack, crs = '+proj=aea +lat_1=34 +lat_2=40.5 +lat_0=0 +lon_0=-120 +x_0=0 +y_0=-4000000 +ellps=GRS80 +datum=NAD83 +units=m +no_defs') 
-plot(env_stack_proj)
+#plot(env_stack_proj, nc = 3, nr = 2)
 # This is the coordinate reference system for California Teal Alber's Equal Area Projection (differences between model 
 # coefficients that use rasters with lat-long vs. equal area is small, but equal-area projections are recommended 
 # by Budic, Didenko, and Dormann 2016 - Ecology and Evolution)
 writeRaster(env_stack_proj, paste0(wd$output, 'predictors/env_stack/CFP_soil_terrain_stack.grd'), overwrite = TRUE)
 writeRaster(env_stack_proj, paste0(wd$output, 'predictors/env_stack/CFP_soil_terrain_stack.tif'), overwrite = TRUE)
 ```
-
 
 ```{r climate raster crop}
 climate_rasters <- list(bcm_stack21_50, bcm_stack51_80, bcm_stack81_10)
@@ -323,18 +328,19 @@ cfp51_80 <- stack(climate_proj[[2]], env_stack_proj)
 cfp81_10 <- stack(climate_proj[[3]], env_stack_proj)
 ```
 
-# Map of environmental predictors to be used for SDM (1981-2010 climate)
-```{r}
-plot(cfp81_10)
+# Environmental predictors to be used for SDM 
+These rasters include the climate normals form 1981-2010. All of the data are at 270m resolution and cover the California portion of the CFP.
+
+```{r fig.width=10, fig.height=20, fig.fullwidth=TRUE}
+cfp81_10 <- stack(paste0(wd$output, 'predictors/env_stack/BCM1981_2010_CA_CFP_Stack.grd'))
+raster::plot(cfp81_10, nc = 3, nr = 6)
 ```
 
-```{r write rasters california cfp}
+```{r write rasters california cfp, eval = FALSE}
 writeRaster(cfp21_50, paste0(wd$output, 'predictors/env_stack/BCM1921_1950_CA_CFP_Stack.grd'), overwrite = TRUE)
 writeRaster(cfp51_80, paste0(wd$output, 'predictors/env_stack/BCM1951_1980_CA_CFP_Stack.grd'), overwrite = TRUE)
 writeRaster(cfp81_10, paste0(wd$output, 'predictors/env_stack/BCM1981_2010_CA_CFP_Stack.grd'), overwrite = TRUE)
 ```
-```
-
 
 ```{r write rasters}
 # These rasters have the extent of the full CFP (somewhat inconsistent)
@@ -343,3 +349,4 @@ writeRaster(cfp81_10, paste0(wd$output, 'predictors/env_stack/BCM1981_2010_CA_CF
 #writeRaster(cfp81_10, paste0(wd$output, 'predictors/env_stack/BCM1981_2010_CFP_Stack.grd'), overwrite = TRUE)
 ```
 
+# References

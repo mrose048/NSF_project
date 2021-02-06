@@ -2,7 +2,10 @@
 title: "California Fish and Wildlife Plots V2"
 author: "Brooke Rose"
 date: "`r format(Sys.time(), '%B %d, %Y')`"
-output: html_document
+output:
+  html_document:
+    theme: journal
+    highlight: espresso
 ---
 # Note: For the final dataset of cleaned plots, I decided to use species codes as the columns (instead of species names). I was having trouble reading the file with species full names. (I still saved a version with full species names)
 

@@ -2,7 +2,10 @@
 title: "Biogeography Explore"
 author: "Brooke Rose"
 date: "`r format(Sys.time(), '%B %d, %Y')`"
-output: html_document
+output:
+  html_document:
+    theme: journal
+    highlight: espresso
 ---
 
 ```{r setup, include=FALSE}
@@ -84,7 +87,7 @@ if(!dir.exists(paste0(wd$output, paste('plots/', sp.file.nm, '/', sep='')))){
 These include all of the Thorne + Cal FWS plot data with environmental data extracted (created in the "plot_environmental_dataframe.Rmd". Here I call in the shapefile, but there is also a csv in the same folder. I also read in the environmental data for a consistent coordinate reference system.
 
 ```{r environmental data}
-env.stack <- stack(paste0(wd$output, 'predictors/env_stack/BCM1981_2010_CFP_Stack.grd'))
+env.stack <- stack(paste0(wd$output, 'predictors/env_stack/BCM1981_2010_CA_CFP_Stack.grd'))
 names(env.stack)
 ```
 
@@ -95,7 +98,7 @@ sp.data <- vroom::vroom(paste0(wd$data, 'plots/sp_pres_abs.gz'))
 sf.data <- sp.data %>% st_as_sf(coords = c('x_coords', 'y_coords'), crs = 3309, remove = FALSE)
 sp.trans <- st_transform(sf.data, crs = proj4string(env.stack)) # CRS transformation
 
-cfp <- st_read(paste0(wd$data,'shapefiles/CFP/CFP_GIS.shp')) # California Floristic Province shapefile
+cfp <- st_read(paste0(wd$data,'shapefiles/CFP/CFP_GIS_California.shp')) # California Floristic Province shapefile
 
 cfp.trans <- st_transform(cfp, crs = proj4string(env.stack)) # CRS transformation
 ```
