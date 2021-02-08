@@ -1,0 +1,838 @@
+---
+title: 'SDM Template: Abies magnifica'
+author: "Brooke Rose"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output:
+  html_document:
+    theme: journal
+    highlight: espresso
+---
+
+# Description
+This Rmarkdown shows the modeling procedure  It outputs models and spatial predictions for 6 modeling techniques (generalized linear models, generalized additive models, boosted regression trees, random forest, artificial neural networks, and support vector machines) and ensembles distributions based on the mean and weighted average (weighted by model performance, AUC) predictions of the 6 models. 
+# Required Datasets:
+To run this document, the user needs access to 
+1. Environmental Raster Stack: output/predictors/env_stack/CFP_environmental_stack.grd
+2. Species Presence/Absence Shapefile (Vegetation Plot Data): output/plots/species name/ study plots
+3. California Florstic Province Shapefile: data/shapefiles/CFP/CFP_GIS.shp
+#
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(cache=TRUE)
+knitr::opts_chunk$set(message = FALSE)
+knitr::opts_chunk$set(warning = FALSE)
+```
+
+# Adjust working directory according to computer you are using
+
+```{r mac directory, eval=FALSE}
+# Mac laptop directory
+# working directory
+wd <- list()
+
+# commonly used paths in my working directory 
+wd$data   <- "/Users/brookerose/Google Drive/Franklin_grant/project/data/"
+wd$output <- "/Users/brookerose/Google Drive/Franklin_grant/project/output/"
+wd$scripts <- "/Users/brookerose/Google Drive/Franklin_grant/project/scripts/"
+wd$software <- "/Users/brookerose/Google Drive/Franklin_grant/project/software/"
+wd$images <- "/Users/brookerose/Google Drive/Franklin_grant/project/images/"
+```
+
+```{r franklin directory}
+# Franklin desktop directory 
+# working directory
+wd <- list()
+
+# commonly used paths in my working directory
+wd$data   <- "/Users/Brooke Rose/Google Drive/Franklin_grant/project/data/"
+wd$output <- "/Users/Brooke Rose/Google Drive/Franklin_grant/project/output/"
+wd$scripts <- "/Users/Brooke Rose/Google Drive/Franklin_grant/project/scripts/"
+wd$software <- "/Users/Brooke Rose/Google Drive/Franklin_grant/project/software/"
+```
+
+```{r quercus directory, eval = FALSE}
+# Quercus desktop directory
+# working directory
+wd <- list()
+
+# commonly used paths in my working directory
+wd$data   <- "/Users/Brooke/Google Drive/Franklin_grant/project/data/"
+wd$output <- "/Users/Brooke/Google Drive/Franklin_grant/project/output/"
+wd$scripts <- "/Users/Brooke/Google Drive/Franklin_grant/project/scripts/"
+wd$software <- "/Users/Brooke/Google Drive/Franklin_grant/project/software/"
+```
+
+```{r load libraries, cache = FALSE}
+library(sf)
+library(raster)
+library(dismo)
+library(rgdal)
+library(maptools)
+library(tidyverse)
+library(rstudioapi)
+library(ggcorrplot)
+library(GGally)
+library(mgcv)
+library(gam)
+library(ROCR)
+library(rgbif)
+library(formula.tools)
+library(params)
+library(rasterVis)
+library(viridis)
+library(cowplot)
+library(rcartocolor)
+library(caret)
+library(biomod2)
+library(MASS)
+library(mgcv)
+library(earth)
+library(rpart)
+library(mda)
+library(Hmisc)
+library(randomForest)
+library(PresenceAbsence)
+library(gridExtra)
+library(grid)
+library(kableExtra)
+library(biomod2)
+library(MASS)
+library(mgcv)
+library(earth)
+library(rpart)
+library(mda)
+library(Hmisc)
+library(gbm)
+library(kernlab)
+library(nnet)
+library(e1071)
+library(lwgeom)
+library(adehabitatHR)
+library(SDMtune)
+library(biomod2)
+library(MASS)
+library(mgcv)
+library(earth)
+library(rpart)
+library(mda)
+library(Hmisc)
+library(gbm)
+library(kernlab)
+library(nnet)
+library(e1071)
+library(vroom)
+library(foreach)
+library(doParallel)
+library(parallel)
+library(flexclust)
+library(ape)
+```
+
+```{r source functions}
+source('https://raw.githubusercontent.com/sjevelazco/spatial_sp_traits/main/R/block_partition.R')
+source('https://raw.githubusercontent.com/sjevelazco/spatial_sp_traits/main/R/inter.R')
+```
+
+# 1. Select target species and create folders for sdm outputs
+The "sp" variable should match one of the USDA plant codes for our target species. These are columns within our compiled plot database. The "scien.nm" should be the scientific name of the species. I use this later to download GBIF data for that species. This makes species modeling easier and reduces chance of error. See the species_region_v5_expanded Google Sheets in Shared Drive for the codes
+```{r target species, include = TRUE, cache = FALSE}
+sp.code <- 'ABMA' 
+scien.nm <- 'Abies magnifica'
+sp.file.nm <- 'Abies_magnifica'
+cal.flor.nm <- 'AbiesMagnifica'
+```
+
+```{r pathways}
+if(!dir.exists(paste0(wd$output, paste('sdm_outputs/', sp.file.nm, '/', sep='')))){ 
+  dir.create(paste0(wd$output, paste('sdm_outputs/', sp.file.nm, '/', sep='')))
+}
+
+# creating subfolders for current and future climate sdm outputs
+subfolder_names <- c("BCM1980_2010","CCSM4_RCP85","CNRMC5_RCP85","MIROC_RCP45", "MIROC_RCP85", "models") 
+for (j in 1:length(subfolder_names)){
+  if(!dir.exists(paste0(wd$output, paste('sdm_outputs/', sp.file.nm, '/', subfolder_names[j], sep='')))){ 
+    dir.create(paste0(wd$output, paste('sdm_outputs/', sp.file.nm, '/', subfolder_names[j], sep='')))
+  }
+}
+
+subfolder_names2 <- c("ensembles", "raw_sdm", "thresholds")
+
+# writing the subfolder names 2 to the current climate folder
+for(i in 1: length(subfolder_names2)){
+    if(!dir.exists(paste0(wd$output, paste('sdm_outputs/', sp.file.nm, '/BCM1980_2010/', subfolder_names2[i], sep='')))){ 
+      dir.create(paste0(wd$output, paste('sdm_outputs/', sp.file.nm, '/BCM1980_2010/', subfolder_names2[i], sep='')))
+    }
+}
+
+# writing a 'threshold' folder within the ensemble folder for current climate
+if(!dir.exists(paste0(wd$output, paste('sdm_outputs/', sp.file.nm, '/BCM1980_2010/', 'ensembles/threshold/', sep='')))){ 
+    dir.create(paste0(wd$output, paste('sdm_outputs/', sp.file.nm, '/BCM1980_2010/', 'ensembles/threshold/', sep='')))
+}
+
+# writing year time periods to each of the future climate folders
+future_climate_folders <- c("CCSM4_RCP85","CNRMC5_RCP85","MIROC_RCP45", "MIROC_RCP85")
+subfolder_names3 <- c("2010-2039", "2040-2069", "2070-2099")
+for(i in 1: length(future_climate_folders)){
+  for(j in 1: length(subfolder_names2)){
+    if(!dir.exists(paste0(wd$output, paste('sdm_outputs/', sp.file.nm, '/', future_climate_folders[i], '/', subfolder_names3[j], sep='')))){ 
+      dir.create(paste0(wd$output, paste('sdm_outputs/', sp.file.nm, '/', future_climate_folders[i], '/', subfolder_names3[j], sep='')))
+    }
+  }
+}
+
+# writing subfolder names 2 to each future climate folder
+for(i in 1: length(future_climate_folders)){
+  for(j in 1: length(subfolder_names3)){
+    for(k in 1: length(subfolder_names2)){
+      if(!dir.exists(paste0(wd$output, paste('sdm_outputs/', sp.file.nm, '/', future_climate_folders[i], '/', subfolder_names3[j], '/', subfolder_names2[k], sep = '')))){
+        dir.create(paste0(wd$output, paste('sdm_outputs/', sp.file.nm, '/', future_climate_folders[i], '/', subfolder_names3[j], '/', subfolder_names2[k], sep = '')))
+      }
+      
+    }
+  }
+  
+}
+
+for(i in 1: length(future_climate_folders)){
+  for(j in 1: length(subfolder_names3)){
+      if(!dir.exists(paste0(wd$output, paste('sdm_outputs/', sp.file.nm, '/', future_climate_folders[i], '/', subfolder_names3[j], '/ensembles/threshold/', sep = '')))){
+        dir.create(paste0(wd$output, paste('sdm_outputs/', sp.file.nm, '/', future_climate_folders[i], '/', subfolder_names3[j], '/ensembles/threshold/', sep = '')))
+      }
+      
+  }
+}
+
+```
+
+# 2. Reading the presence/absence data created in species explore scripts + the California Floristic Province Shapefile + Environmental predictors
+These include all of the Thorne + Cal FWS plot data with environmental data extracted. I also use the presence/absence data to define the study ecoregions
+
+```{r required data, include = FALSE, cache = FALSE}
+env.stack <- stack(paste0(wd$output, 'predictors/env_stack/BCM1981_2010_CA_CFP.grd'))
+names(env.stack)
+
+
+# NOTE, the landform and clay variable often gets renamed when writing to shapefile file so it could be different depending on species (just rename variable to percent_clay and landform)
+sp.data <- st_read(paste0(wd$output, paste('plots/', sp.file.nm, '/', 'study_plots', '.shp', sep=''))) %>%
+  dplyr::rename(percent_clay = clay,
+                landform = landfrm)# plot and environmental data (presence/absence)
+
+sp <- sp.data$ABMA # for model data frame
+
+cfp <- st_read(paste0(wd$data,'shapefiles/CFP/CFP_GIS_California.shp')) # California Floristic Province shapefile
+
+cfp.trans <- st_transform(cfp, crs = proj4string(env.stack)) # CRS transformation
+```
+
+## Current extent of occurrences
+These are the ecoregions in which the species occurs (based on CalFlora observations).
+
+```{r study region, cache = FALSE}
+calf.cfp <- st_intersection(sp.data, st_make_valid(cfp.trans %>% dplyr::select(JEP_REG)))
+  jep.regions <- unique(calf.cfp$JEP_REG)
+
+  cfp.subset <- cfp.trans %>%
+    filter(JEP_REG %in% jep.regions) %>%
+    filter(JEP_REG != 'Oregon CFP' & JEP_REG != 'Baja CFP')
+plot(st_geometry(cfp.trans), main = paste0(scien.nm, ": Study Regions Based on CalFlora"))
+plot(st_geometry(cfp.subset),add =TRUE, col = 'blue')
+plot(st_geometry(sp.data %>% filter(ABMA == 0)), add = TRUE, col = 'orange', cex = .4)
+plot(st_geometry(sp.data %>% filter(ABMA == 1)), add = TRUE, col = 'green', cex = .7)
+
+sp.points <- sp.data %>% filter(ABMA == 1)
+sp.absent <- sp.data %>% filter(ABMA == 0)
+```
+
+```{r prepping env rasters, cache = FALSE}
+# Cropping the environmental predictors to the extent of current occurrences
+env.crop <- crop(env.stack, cfp.subset)
+env.mask <- raster::mask(env.crop, cfp.subset)
+
+#names(env.mask)
+```
+
+# 3. Comparing Models
+## Block partitioning
+```{r eval = FALSE}
+
+model.dat <- sp.data %>% 
+  st_set_geometry(NULL) %>%
+  dplyr::select(species, x_tran, y_tran, ABMA) %>%
+  rename(x = x_tran,
+         y = y_tran,
+         sp = species,
+         pr_ab = ABMA) %>%
+  na.omit()
+
+somevar2 <- stack(env.stack[[3]], env.stack[[4]], env.stack[[7]], env.stack[[8]])
+
+part <- block_partition_pa(
+  env_layer = somevar2, # stack or brick object with environmental variables that will be used in SDM
+  occ_data = model.dat, # species occurrence database, it is mandatory it has the next columns: species names, lat, long, and a column with presences absences info as 1 and 0 respectively. 
+  sp = 'sp', # name of the column with species names 
+  x = 'x', # name of the column with longitude              
+  y = 'y', # name of the column with latitude 
+  pr_ab = 'pr_ab', # name of the column with presences-absences data (1 and 0) 
+  max_res_mult = 500, # Maximum value used for multiplying raster resolution. It will define  the coarsest resolution to be tested, default 200 (max_res_mult X res(env_layer)). Note that the minimum resolution to be tested will be 2 X res(env_layer)
+  num_grids = 30, # number of grids to be tested
+  n_part = 2, # Number of group for data partitioning
+  cores = 3, # Number of cores to be activated for parallel processing
+  save_part_raster = TRUE, # Saver raster "checkerboard"
+  dir_save = paste0(wd$output) #Write the directory path to save results. A sub-folder with block name will be created and will be saved two .txt files one with species records and the partitioning group of each species and one with characteristics of the best grid selected for each species.
+)
+
+
+part %>% 
+  dplyr::group_by(sp, partition, pr_ab) %>% 
+  count 
+```
+
+## Model construction
+Setting up for 10 cross validation runs for each model using the model data frame. Here, I create a data frame to store evaluation results and an array to store the predicted habitat suitability for each model and cross-validation procedure.
+```{r model construction}
+# data frame that only includes response variable (p/a) and the environmental predictors included in models (requirement for gbm)
+model.dat <- sp.data %>% 
+  dplyr::select(sp = ABMA, cwd, tmin, aet, ppt_djf, ppt_jja, pH, awc, depth, percent_clay,landform) %>%
+  st_set_geometry(NULL) %>%
+  na.omit()
+model.dat$landform <- as.integer(model.dat$landform)
+
+predictors <- model.dat %>%
+  dplyr::select(cwd, tmin, aet, ppt_djf, ppt_jja, pH, awc, depth, percent_clay,landform) %>%
+  na.omit()
+corr <- round(cor(predictors), 1)
+p.mat <- cor_pmat(predictors)
+ggcorrplot(corr, hc.order = TRUE, type = "lower",
+   lab = TRUE, title = "Correlation matrix of predictor variables")
+
+ # used for model evaluation using the AUC approach
+nCV <- 10 # Number of cross-validations
+nRow <- nrow(model.dat)
+Test_results <- as.data.frame(matrix(0,ncol=nCV,nrow=6, dimnames=list(c("GLM","GAM","RF","BRT", "SVM", "ANN"), NULL))) # AUC
+Pred_results <- array(0,c(nRow, 6, nCV), dimnames=list(seq(1:nRow), c("GLM","GAM","RF","BRT", "SVM", "ANN"), seq(1:nCV))) # suitability probabilities
+```
+
+Loop through the 10 cross-validation runs. Outputs GLM, GAM, Random Forest, Boosted Regression Trees, Support Vector Machines and Artificial Neural Networks
+```{r model loop and saving to file}
+
+cl <- makeCluster(detectCores()-1)
+  registerDoParallel(cl)
+  
+for(i in 1:nCV){
+#separate the original data in one sub set for calibration and the other for evaluation. 
+  a <- SampleMat2(ref=model.dat$sp, ratio=0.7) # function from the biomod2 package
+  calib <- model.dat[a$calibration,]
+  eval <- model.dat[a$evaluation,]
+  
+  ###  GLM ###
+  glmStart <- glm(sp~1, data=calib, family=binomial)
+  glm.formula <- makeFormula("sp", model.dat[,c("cwd","aet","tmin","ppt_djf", 'ppt_jja', "pH", 
+                                                "awc", "depth", "percent_clay", "landform")],
+                             "quadratic", interaction.level=1)
+  glmModAIC <- stepAIC(glmStart, glm.formula, data = calib, 
+                       direction = "both", trace = FALSE, k = 2, 
+                       control=glm.control(maxit=100))
+
+  # prediction on the evaluation data and evaluation using the AUC approach
+  Pred_test <-  predict(glmModAIC, eval, type="response") 
+  Test_results["GLM",i] <- somers2(Pred_test,eval$sp)["C"]
+
+  # prediction on the total dataset
+  Pred_results[,"GLM",i] <- predict(glmModAIC, model.dat, type="response")
+  
+  ### GAM ###  
+  gam_mgcv <- gam(sp~s(cwd)+s(aet)+s(tmin)+s(ppt_djf)+s(ppt_jja)+
+                    s(pH)+s(awc)+s(depth)+s(percent_clay)+landform, 
+                  data=calib, family="binomial")
+  # prediction on the evaluation data and evaluation using the AUC approach
+  Pred_test <-  predict(gam_mgcv, eval, type="response")
+  Test_results["GAM",i] <- somers2(Pred_test,eval$sp)["C"]
+  
+# prediction on the total dataset
+  Pred_results[,"GAM",i] <- predict(gam_mgcv,model.dat, type="response")
+  
+  ### Random Forest ###  
+  RF_mod = randomForest(x = calib[,c("cwd", "aet", "tmin", "ppt_djf","ppt_jja","pH", 
+                                     "awc", "depth", "percent_clay", "landform")],
+                        y = as.factor(calib$sp), ntree = 1000, importance = TRUE)
+  # prediction on the evaluation data and evaluation using the AUC approach
+  Pred_test <-  predict(RF_mod, eval, type="prob")[,2]
+  Test_results["RF",i] <- somers2(Pred_test,eval$sp)["C"]  
+
+  # prediction on the total dataset
+  Pred_results[,"RF",i] = predict(RF_mod, model.dat, type="prob")[,2]
+  
+  
+  ### Boosted Regression Tree
+  GBM_mod <- gbm(sp ~ cwd + tmin + aet + ppt_djf + ppt_jja + pH + awc + depth +
+                  percent_clay + landform, data= calib,
+                 distribution = "bernoulli", n.trees = 10000, interaction.depth = 3, 
+                 shrinkage = 0.01, cv.folds = 5)
+  
+  gbm.mod.perf = gbm.perf(GBM_mod, method = "cv", plot.it = F)
+  
+  # prediction on the evaluation data and evaluation using the AUC approach
+  Pred_test <-  predict(GBM_mod, eval, type="response", n.trees = gbm.mod.perf)
+  Test_results["BRT",i] <- somers2(Pred_test,eval$sp)["C"]  
+
+  # prediction on the total dataset
+  Pred_results[,"BRT",i] = predict(GBM_mod, model.dat, type="response", n.trees = gbm.mod.perf)
+   
+  ### Support Vector Machine
+  svm.tune <- tune(svm, sp~., data = calib, 
+              ranges = list(gamma = 2^(-1:1), cost = 2^(2:4)),
+              tunecontrol = tune.control(sampling = "fix"))
+  
+  svm.mod <- kernlab::ksvm(sp ~ cwd + tmin + aet + ppt_djf + ppt_jja + pH + awc + depth + landform, 
+                           data=calib, type="C-svc", kernel = "rbfdot", C = svm.tune[[2]], prob.model=TRUE)
+
+   
+  # prediction on the evaluation data and evaluation using the AUC approach
+  Pred_test <-  predict(svm.mod, eval, type = 'prob')[,2]
+  Test_results["SVM",i] <- somers2(Pred_test,eval$sp)["C"]  
+
+  # prediction on the total dataset
+  Pred_results[,"SVM",i] = predict(svm.mod, model.dat, type="prob")[,2]
+   
+   ### Artifical Neural Network
+   CV_nnet <- biomod2:::.CV.nnet(Input = calib[, c("cwd", "tmin", "aet", "ppt_djf", "ppt_jja",
+                                             "pH", "awc", "depth", "percent_clay", "landform")],
+                              Target = calib$sp)
+   
+   nnet.Final <- nnet(calib[, c("cwd", "tmin", "aet", "ppt_djf", "ppt_jja",
+                                 "pH", "awc", "depth", "percent_clay", "landform")], 
+                   calib$sp, size = CV_nnet[1, 1],
+                   rang = 0.1, decay = CV_nnet[1, 2], 
+                   maxit = 200, trace = F)
+   
+   # prediction on the evaluation data and evaluation using the AUC approach
+  Pred_test <-  predict(nnet.Final, eval[, c("cwd", "tmin", "aet", "ppt_djf", 
+                                               "ppt_jja", "pH", "awc", "depth", 
+                                               "percent_clay", "landform")])
+  Test_results["ANN",i] <- somers2(Pred_test,eval$sp)["C"]  
+
+  # prediction on the total dataset
+  Pred_results[,"ANN",i] = predict(nnet.Final, model.dat[, c("cwd", "tmin", "aet", "ppt_djf", 
+                                                             "ppt_jja", "pH","awc", "depth",
+                                                             "percent_clay", "landform")])
+}
+  
+parallel::stopCluster(cl)
+```
+
+```{r saving models to file}
+if(!dir.exists(paste0(wd$output, paste('models/', sp.file.nm, '/', sep='')))){ 
+  dir.create(paste0(wd$output, paste('models/', sp.file.nm, '/', sep='')))
+}
+saveRDS(glmModAIC, file = paste0(wd$output, 'models/', sp.file.nm, '/glmModiAIC.rda'))
+saveRDS(gam_mgcv, file = paste0(wd$output, 'models/', sp.file.nm, '/gam_mgcv.rda'))
+saveRDS(RF_mod, file = paste0(wd$output, 'models/', sp.file.nm, '/randomforest.rda'))
+saveRDS(GBM_mod, file = paste0(wd$output, 'models/', sp.file.nm, '/brt.rda'))
+saveRDS(svm.mod, file = paste0(wd$output, 'models/', sp.file.nm, '/svm.rda'))
+saveRDS(nnet.Final, file = paste0(wd$output, 'models/', sp.file.nm, '/nnet.final.rda'))
+
+Pred_tibble <- as_tibble(Pred_results) %>%
+  cbind(model.dat %>% dplyr::select(sp))
+AUC <- unlist(Test_results)
+AUC <- as.data.frame(AUC)
+Test_tibble <- cbind(AUC, model=rep(rownames(Test_results), times=10))
+
+write_csv(Pred_tibble, paste0(wd$output, 'models/', sp.file.nm, '/prediction_results.csv'))
+write_csv(Test_tibble, paste0(wd$output, 'models/', sp.file.nm, '/AUC_results.csv'))
+write_csv(calib, paste0(wd$output, 'models/', sp.file.nm, '/calib_data.csv'))
+write_csv(eval, paste0(wd$output, 'models/', sp.file.nm, '/eval_data.csv'))
+```
+
+```{r load models, cache = FALSE}
+glmModAIC <- readRDS(paste0(wd$output, 'models/', sp.file.nm, '/glmModiAIC.rda'))
+gam_mgcv <- readRDS(paste0(wd$output, 'models/', sp.file.nm, '/gam_mgcv.rda'))
+RF_mod <- readRDS(paste0(wd$output, 'models/', sp.file.nm, '/randomforest.rda'))
+GBM_mod <- readRDS(paste0(wd$output, 'models/', sp.file.nm, '/brt.rda'))
+gbm.mod.perf = gbm.perf(GBM_mod, method = "cv", plot.it = F)
+svm.mod <- readRDS(paste0(wd$output, 'models/', sp.file.nm, '/svm.rda'))
+nnet.Final <- readRDS(paste0(wd$output, 'models/', sp.file.nm, '/nnet.final.rda'))
+
+Pred_tibble <- read_csv(paste0(wd$output, 'models/', sp.file.nm, '/prediction_results.csv'))
+Test_tibble <- read_csv(paste0(wd$output, 'models/', sp.file.nm, '/AUC_results.csv'))
+```
+
+## Model evaluation
+### AUC
+```{r auc results, cache = FALSE}
+#p <- ggplot(Test_tibble, aes(model, AUC))
+#p + geom_boxplot() + labs(title = 'AUC for models with Theobald landform data')
+
+ggplot(Test_tibble, aes(x=model, y=AUC)) + 
+  geom_boxplot(fill="gray")+
+  labs(title= paste0(scien.nm, ": AUC Comparison"),x="Model Type", y = "AUC") +
+  theme(text = element_text(size = 15, family = "serif"),
+        axis.title.x = element_text(vjust = .25)) 
+
+average.AUC <- Test_tibble %>%
+  dplyr::group_by(model) %>%
+  dplyr::summarise(mean = mean(AUC))
+```
+
+### Sensitivity specificity curves for each model
+```{r roc curves}
+id <- rownames(Pred_tibble)
+models1 <- cbind(id, Pred_tibble$sp, Pred_tibble[1:6])
+auc.roc.plot(models1, lwd = 1, legend.cex = 1.5, model.names=c("GLM","GAM","RF", "BRT", "SVM", "ANN"))
+```
+
+```{r spatial predictions}
+# env.mask with only the variables included in models
+pred.mask <- stack(env.mask[[2]], env.mask[[4]], env.mask[[1]], env.mask[[8]], env.mask[[9]], env.mask[[14]], env.mask[[15]], env.mask[[16]], env.mask[[17]], as.integer(env.mask[[18]]))
+#pred.mask[[10]] <- deratify(pred.mask[[10]], complete = TRUE)
+#pred.mask[[10]] <- ratify(pred.mask[[10]])
+names(pred.mask)[[10]] <- c('landform')
+
+# GLM
+glm.sp.pred <- raster::predict(pred.mask, glmModAIC, type = "response")
+glm.sp.pred <- raster::extend(glm.sp.pred, cfp.trans)
+writeRaster(glm.sp.pred, paste0(wd$output, 'sdm_outputs/', sp.file.nm, '/BCM1980_2010/raw_sdm/glm.pred.tif'), overwrite = TRUE)
+writeRaster(glm.sp.pred, paste0(wd$output, 'sdm_outputs/', sp.file.nm, '/BCM1980_2010/raw_sdm/glm.pre.asc'), overwrite = TRUE)
+
+# GAM
+gam.sp.pred <- raster::predict(pred.mask, gam_mgcv, type = "response")
+gam.sp.pred <- raster::extend(gam.sp.pred, cfp.trans)
+writeRaster(gam.sp.pred, paste0(wd$output, 'sdm_outputs/', sp.file.nm, '/BCM1980_2010/raw_sdm/gam.pred.tif'), overwrite = TRUE)
+writeRaster(gam.sp.pred, paste0(wd$output, 'sdm_outputs/', sp.file.nm, '/BCM1980_2010/raw_sdm/gam.pred.asc'), overwrite = TRUE)
+
+# Random Forest
+rf.sp.pred <- raster::predict(pred.mask, RF_mod, type = "prob", index = 2)
+rf.sp.pred <- raster::extend(rf.sp.pred, cfp.trans)
+writeRaster(rf.sp.pred, paste0(wd$output, 'sdm_outputs/', sp.file.nm, '/BCM1980_2010/raw_sdm/rf.pred.tif'), overwrite = TRUE)
+writeRaster(rf.sp.pred, paste0(wd$output, 'sdm_outputs/', sp.file.nm, '/BCM1980_2010/raw_sdm/rf.pred.asc'), overwrite = TRUE)
+
+# Boosted Regression Trees
+brt.sp.pred <- raster::predict(pred.mask, GBM_mod, n.trees = gbm.mod.perf, type = 'response')
+brt.sp.pred <- raster::extend(brt.sp.pred, cfp.trans)
+writeRaster(brt.sp.pred, paste0(wd$output, 'sdm_outputs/', sp.file.nm, '/BCM1980_2010/raw_sdm/brt.pred.tif'), overwrite = TRUE)
+writeRaster(brt.sp.pred, paste0(wd$output, 'sdm_outputs/', sp.file.nm, '/BCM1980_2010/raw_sdm/brt.pred.asc'), overwrite = TRUE)
+
+# Support Vector Machine
+svm.sp.pred <- raster::predict(pred.mask, svm.mod, type = "prob", index = 2)
+svm.sp.pred <- raster::extend(svm.sp.pred, cfp.trans)
+writeRaster(svm.sp.pred, paste0(wd$output, 'sdm_outputs/', sp.file.nm, '/BCM1980_2010/raw_sdm/svm.pred.tif'), overwrite = TRUE)
+writeRaster(svm.sp.pred, paste0(wd$output, 'sdm_outputs/', sp.file.nm, '/BCM1980_2010/raw_sdm/svm.pred.asc'), overwrite = TRUE)
+
+
+# Artificial Neural Network
+ann.sp.pred <- raster::predict(pred.mask, nnet.Final)
+ann.sp.pred <- raster::extend(ann.sp.pred, cfp.trans)
+writeRaster(ann.sp.pred, paste0(wd$output, 'sdm_outputs/', sp.file.nm, '/BCM1980_2010/raw_sdm/ann.pred.tif'), overwrite = TRUE)
+writeRaster(ann.sp.pred, paste0(wd$output, 'sdm_outputs/', sp.file.nm, '/BCM1980_2010/raw_sdm/ann.pred.asc'), overwrite = TRUE)
+```
+
+## Map of Raw Spatial Predictions 
+```{r maps of raw spatial predictions, cache = FALSE}
+raw.preds.tif <- list.files(path=paste0(wd$output, 'sdm_outputs/', sp.file.nm, '/BCM1980_2010/raw_sdm'), pattern= c('.tif$'), all.files=FALSE, full.names=TRUE, recursive=TRUE)
+raw.preds <- raster::stack(raw.preds.tif)
+names(raw.preds) <- c('ann', 'brt', 'gam', 'glm', 'rf', 'svm')
+presence <- sp.data %>%
+  filter(ABMA == 1)
+absence <- sp.data %>%
+  filter(ABMA == 0)
+
+p.points <- as(presence, 'Spatial')
+a.points <- as(absence, 'Spatial')
+cfp.pol <- as(cfp.subset, 'Spatial')
+
+myTheme <- rasterTheme(region = rev(terrain.colors(7)))
+
+# extent(cfp.subset) # use these values to set the extent
+# I manually save all of the map plots to file
+levelplot(raw.preds, main = paste0(scien.nm, ": Current distribution"), par.settings = myTheme, xlim=c(-373867.6, 188187.6), ylim=c(-360978.6, 450044)) +
+  layer(sp.polygons(cfp.pol, fill = 'transparent', col = 1))
+```
+
+## Thresholding
+The next command collects together the observation label with the 
+observed and predicted values in a format required by the package PresenceAbsence(). Here I use the first set of data in the array Pred_results produced by the cross-validation loop.
+Then the command optimal.thresholds() calculates the optimal threshold for your model based on 12 published criteria
+```{r thresholds}
+model.dat$ID <- seq.int(nrow(model.dat))
+testframe <- data.frame(cbind(model.dat$ID, model.dat$sp, Pred_tibble %>% dplyr::select(GLM.1, GAM.1, RF.1, BRT.1, ANN.1, SVM.1)))
+#testframe <- rename(testframe, c("ID"="V1", "Obs" = "V2"))
+opt = optimal.thresholds(testframe)
+print(opt)
+```
+
+```{r glm confusion matrices, include = FALSE}
+sens_spec = opt[2,2]
+table(model.dat$sp, Pred_tibble %>% dplyr::select(GLM.1) > sens_spec)
+# save this table to tab
+tab<-table(model.dat$sp, Pred_tibble %>% dplyr::select(GLM.1) > sens_spec)
+print(sensitivity<-(tab[2,2])/(tab[2,1]+tab[2,2]))
+print(specificity<-(tab[1,1])/(tab[1,1]+tab[1,2]))
+print(pcc<-(tab[1,1]+tab[2,2])/(length(model.dat$sp) ))
+```
+
+```{r gam confusion matrices, include = FALSE}
+sens_spec = opt[2,3]
+table(model.dat$sp, Pred_tibble %>% dplyr::select(GAM.1) > sens_spec)
+# save this table to tab
+tab<-table(model.dat$sp, Pred_tibble %>% dplyr::select(GAM.1) > sens_spec)
+print(sensitivity<-(tab[2,2])/(tab[2,1]+tab[2,2]))
+print(specificity<-(tab[1,1])/(tab[1,1]+tab[1,2]))
+print(pcc<-(tab[1,1]+tab[2,2])/(length(model.dat$sp) ))
+```
+
+```{r rf confusion matrices, include = FALSE}
+sens_spec = opt[2,4]
+table(model.dat$sp, Pred_tibble %>% dplyr::select(RF.1) > sens_spec)
+# save this table to tab
+tab<-table(model.dat$sp, Pred_tibble %>% dplyr::select(RF.1) > sens_spec)
+print(sensitivity<-(tab[2,2])/(tab[2,1]+tab[2,2]))
+print(specificity<-(tab[1,1])/(tab[1,1]+tab[1,2]))
+print(pcc<-(tab[1,1]+tab[2,2])/(length(model.dat$sp) ))
+```
+
+```{r brt confusion matrices, include = FALSE}
+sens_spec = opt[2,5]
+table(model.dat$sp, Pred_tibble %>% dplyr::select(BRT.1) > sens_spec)
+# save this table to tab
+tab<-table(model.dat$sp, Pred_tibble %>% dplyr::select(BRT.1) > sens_spec)
+print(sensitivity<-(tab[2,2])/(tab[2,1]+tab[2,2]))
+print(specificity<-(tab[1,1])/(tab[1,1]+tab[1,2]))
+print(pcc<-(tab[1,1]+tab[2,2])/(length(model.dat$sp) ))
+```
+
+```{r ann confusion matrices, include = FALSE}
+sens_spec = opt[2,6]
+table(model.dat$sp, Pred_tibble %>% dplyr::select(ANN.1) > sens_spec)
+# save this table to tab
+tab<-table(model.dat$sp, Pred_tibble %>% dplyr::select(BRT.1) > sens_spec)
+print(sensitivity<-(tab[2,2])/(tab[2,1]+tab[2,2]))
+print(specificity<-(tab[1,1])/(tab[1,1]+tab[1,2]))
+print(pcc<-(tab[1,1]+tab[2,2])/(length(model.dat$sp) ))
+```
+
+```{r svm confusion matrices, include = FALSE}
+sens_spec = opt[2,7]
+table(model.dat$sp, Pred_tibble %>% dplyr::select(SVM.1) > sens_spec)
+# save this table to tab
+tab<-table(model.dat$sp, Pred_tibble %>% dplyr::select(BRT.1) > sens_spec)
+print(sensitivity<-(tab[2,2])/(tab[2,1]+tab[2,2]))
+print(specificity<-(tab[1,1])/(tab[1,1]+tab[1,2]))
+print(pcc<-(tab[1,1]+tab[2,2])/(length(model.dat$sp) ))
+```
+
+```{r glm thresholds}
+glm.thresh <- function(x) {
+ifelse(x <=  opt[2,2], 0,
+ifelse(x >  opt[2,2], 1, NA)) }
+glm.binary <- calc(raw.preds[[4]], fun=glm.thresh)
+writeRaster(glm.binary, paste0(wd$output, 'sdm_outputs/', sp.file.nm, '/BCM1980_2010/thresholds/glm.binary.tif'), overwrite = TRUE)
+writeRaster(glm.binary, paste0(wd$output, 'sdm_outputs/', sp.file.nm, '/BCM1980_2010/thresholds/glm.binary.asc'), overwrite = TRUE)
+
+glm.sens.spec <- calc(raw.preds[[4]], fun=function(x){ x[x < opt[2,2]] <- 0; return(x)} ) # sets all values below threshold to 0 and retains values above
+writeRaster(glm.sens.spec, paste0(wd$output, 'sdm_outputs/', sp.file.nm, '/BCM1980_2010/thresholds/glm.sens.spec.tif'), overwrite = TRUE )
+writeRaster(glm.sens.spec, paste0(wd$output, 'sdm_outputs/', sp.file.nm, '/BCM1980_2010/thresholds/glm.sens.spec.asc'), overwrite = TRUE )
+```
+
+```{r gam thresholds}
+gam.thresh <- function(x) {
+ifelse(x <=  opt[2,3], 0,
+ifelse(x >  opt[2,3], 1, NA)) }
+gam.binary <- calc(raw.preds[[3]], fun=gam.thresh)
+writeRaster(gam.binary, paste0(wd$output, 'sdm_outputs/', sp.file.nm, '/BCM1980_2010/thresholds/gam.binary.tif'), overwrite = TRUE)
+writeRaster(gam.binary, paste0(wd$output, 'sdm_outputs/', sp.file.nm, '/BCM1980_2010/thresholds/gam.binary.asc'), overwrite = TRUE)
+
+gam.sens.spec <- calc(raw.preds[[3]], fun=function(x){ x[x < opt[2,3]] <- 0; return(x)} ) # sets all values below threshold to 0 and retains values above
+writeRaster(gam.sens.spec, paste0(wd$output, 'sdm_outputs/', sp.file.nm, '/BCM1980_2010/thresholds/gam.sens.spec.tif'), overwrite = TRUE)
+writeRaster(gam.sens.spec, paste0(wd$output, 'sdm_outputs/', sp.file.nm, '/BCM1980_2010/thresholds/gam.sens.spec.asc'), overwrite = TRUE)
+```
+
+```{r rf thresholds}
+rf.thresh <- function(x) {
+ifelse(x <=  opt[2,4], 0,
+ifelse(x >  opt[2,4], 1, NA)) }
+rf.binary <- calc(raw.preds[[5]], fun=rf.thresh)
+writeRaster(rf.binary, paste0(wd$output, 'sdm_outputs/', sp.file.nm, '/BCM1980_2010/thresholds/rf.binary.tif'), overwrite = TRUE)
+writeRaster(rf.binary, paste0(wd$output, 'sdm_outputs/', sp.file.nm, '/BCM1980_2010/thresholds/rf.binary.asc'), overwrite = TRUE)
+
+rf.sens.spec <- calc(raw.preds[[5]], fun=function(x){ x[x < opt[2,4]] <- 0; return(x)} ) # sets all values below threshold to 0 and retains values above
+writeRaster(rf.sens.spec, paste0(wd$output, 'sdm_outputs/', sp.file.nm, '/BCM1980_2010/thresholds/rf.sens.spec.tif'), overwrite = TRUE)
+writeRaster(rf.sens.spec, paste0(wd$output, 'sdm_outputs/', sp.file.nm, '/BCM1980_2010/thresholds/rf.sens.spec.asc'), overwrite = TRUE)
+```
+
+```{r brt thresholds}
+brt.thresh <- function(x) {
+ifelse(x <=  opt[2,5], 0,
+ifelse(x >  opt[2,5], 1, NA)) }
+brt.binary <- calc(raw.preds[[2]], fun=brt.thresh)
+writeRaster(brt.binary, paste0(wd$output, 'sdm_outputs/', sp.file.nm, '/BCM1980_2010/thresholds/brt.binary.tif'), overwrite = TRUE)
+writeRaster(brt.binary, paste0(wd$output, 'sdm_outputs/', sp.file.nm, '/BCM1980_2010/thresholds/brt.binary.asc'), overwrite = TRUE)
+
+brt.sens.spec <- calc(raw.preds[[2]], fun=function(x){ x[x < opt[2,5]] <- 0; return(x)} ) # sets all values below threshold to 0 and retains values above
+writeRaster(brt.sens.spec, paste0(wd$output, 'sdm_outputs/', sp.file.nm, '/BCM1980_2010/thresholds/brt.sens.spec.tif'), overwrite = TRUE)
+writeRaster(brt.sens.spec, paste0(wd$output, 'sdm_outputs/', sp.file.nm, '/BCM1980_2010/thresholds/brt.sens.spec.asc'), overwrite = TRUE)
+```
+
+```{r ann thresholds}
+ann.thresh <- function(x) {
+ifelse(x <=  opt[2,6], 0,
+ifelse(x >  opt[2,6], 1, NA)) }
+ann.binary <- calc(raw.preds[[1]], fun=ann.thresh)
+writeRaster(ann.binary, paste0(wd$output, 'sdm_outputs/', sp.file.nm, '/BCM1980_2010/thresholds/ann.binary.tif'), overwrite = TRUE)
+writeRaster(ann.binary, paste0(wd$output, 'sdm_outputs/', sp.file.nm, '/BCM1980_2010/thresholds/ann.binary.asc'), overwrite = TRUE)
+
+ann.sens.spec <- calc(raw.preds[[1]], fun=function(x){ x[x < opt[2,6]] <- 0; return(x)} ) # sets all values below threshold to 0 and retains values above
+writeRaster(ann.sens.spec, paste0(wd$output, 'sdm_outputs/', sp.file.nm, '/BCM1980_2010/thresholds/ann.sens.spec.tif'), overwrite = TRUE)
+writeRaster(ann.sens.spec, paste0(wd$output, 'sdm_outputs/', sp.file.nm, '/BCM1980_2010/thresholds/ann.sens.spec.asc'), overwrite = TRUE)
+```
+
+```{r svm thresholds}
+svm.thresh <- function(x) {
+ifelse(x <=  opt[2,7], 0,
+ifelse(x >  opt[2,7], 1, NA)) }
+svm.binary <- calc(raw.preds[[6]], fun=svm.thresh)
+writeRaster(svm.binary, paste0(wd$output, 'sdm_outputs/', sp.file.nm, '/BCM1980_2010/thresholds/svm.binary.tif'), overwrite = TRUE)
+writeRaster(svm.binary, paste0(wd$output, 'sdm_outputs/', sp.file.nm, '/BCM1980_2010/thresholds/svm.binary.asc'), overwrite = TRUE)
+
+svm.sens.spec <- calc(raw.preds[[6]], fun=function(x){ x[x < opt[2,7]] <- 0; return(x)} ) # sets all values below threshold to 0 and retains values above
+writeRaster(svm.sens.spec, paste0(wd$output, 'sdm_outputs/', sp.file.nm, '/BCM1980_2010/thresholds/svm.sens.spec.tif'), overwrite = TRUE)
+writeRaster(svm.sens.spec, paste0(wd$output, 'sdm_outputs/', sp.file.nm, '/BCM1980_2010/thresholds/svm.sens.spec.asc'), overwrite = TRUE)
+```
+
+### Maps of binary predictions for each model based on sensitivity = specificity
+```{r binary threshold maps}
+binary.preds.tif <- list.files(path=paste0(wd$output, 'sdm_outputs/', sp.file.nm, '/BCM1980_2010/thresholds/'), pattern= c('binary.tif$'), all.files=FALSE, full.names=TRUE, recursive=TRUE)
+binary.preds <- raster::stack(binary.preds.tif)
+names(binary.preds) <- c('glm.binary', 'gam.binary', 'rf.binary', 'brt.binary', 'ann.binary', 'svm.binary') 
+#extent(cfp.subset) # use these values to set the extent 
+levelplot(binary.preds, main = paste0(scien.nm, ": Binary Threshold"), par.settings = myTheme, xlim=c(-373867.6, 188187.6), ylim=c(-360978.6, 450044)) +
+  layer(sp.polygons(cfp.pol, fill = 'transparent', col = 1)) 
+```
+
+### Maps of thresholded values where all values above sensitivity = specificity are retained, values below = 0
+```{r sens_spec threshold maps}
+sens.spec.preds.tif <- list.files(path=paste0(wd$output, 'sdm_outputs/', sp.file.nm, '/BCM1980_2010/thresholds/'), pattern= c('sens.spec.tif$'), all.files=FALSE, full.names=TRUE, recursive=TRUE)
+sens.spec.preds <- raster::stack(sens.spec.preds.tif)
+names(sens.spec.preds) <- c('glm', 'gam', 'rf', 'brt', 'ann', 'svm') # based on sensitivity = specificity 
+extent(cfp.subset)
+levelplot(sens.spec.preds, main = paste0(scien.nm, ": Sensitivity = Specificity Threshold"), par.settings = myTheme, xlim=c(-373867.6, 188187.6), ylim=c(-360978.6, 450044)) +
+  layer(sp.polygons(cfp.pol, fill = 'transparent', col = 1))
+```
+
+## Ensemble models 
+```{r ensemble, cache = FALSE}
+# average.AUC
+auc.weights <- as.vector(average.AUC$mean) # auc weights for weighting the ensemble average
+
+mean_sdm <- calc(raw.preds, fun = mean)
+w_ave_sdm <- raster::weighted.mean(raw.preds, w = auc.weights)
+sd_sdm <- calc(raw.preds, fun = sd)
+ensemble <- stack(mean_sdm, w_ave_sdm, sd_sdm)
+names(ensemble) <- c('mean','weighted average', 'standard deviation')
+
+levelplot(ensemble, main = paste0(scien.nm, ": Ensemble"), par.settings = myTheme, xlim=c(-373867.6, 188187.6), ylim=c(-360978.6, 450044)) +
+  layer(sp.polygons(cfp.pol, fill = 'transparent', col = 1)) 
+
+auc <-  as.data.frame(matrix(ncol=1,nrow=8, dimnames=list(c("ensemble mean", "ensemble weighted average", "GLM","GAM","RF","BRT", "ANN", "SVM"), NULL)))
+
+auc <-  list()
+
+
+ensemble_extract <- raster::extract(ensemble, sp.data, df = TRUE, sp = TRUE)
+ensemble_data <- st_as_sf(ensemble_extract) %>%
+  dplyr::select(ABMA, mean, weighted.average, standard.deviation) %>%
+  na.omit()
+auc["ensemble.mean"] <- somers2(ensemble_data$mean, ensemble_data$ABMA)["C"]
+auc["ensemble.weighted.average"] <- somers2(ensemble_data$weighted.average, ensemble_data$ABMA)["C"]
+
+glm_extract <- raster::extract(raw.preds[[4]], sp.data, df = TRUE, sp = TRUE)
+glm_data <- st_as_sf(glm_extract) 
+auc["GLM"] <- somers2(glm_data$glm, glm_data$ABMA)["C"]
+
+gam_extract <- raster::extract(raw.preds[[3]], sp.data, df = TRUE, sp = TRUE)
+gam_data <- st_as_sf(gam_extract) 
+auc["GAM"] <- somers2(gam_data$gam, gam_data$ABMA)["C"]
+
+rf_extract <- raster::extract(raw.preds[[5]], sp.data, df = TRUE, sp = TRUE)
+rf_data <- st_as_sf(rf_extract)
+auc["RF"] <- somers2(rf_data$rf, rf_data$ABMA)["C"]
+
+brt_extract <- raster::extract(raw.preds[[2]], sp.data, df = TRUE, sp = TRUE)
+brt_data <- st_as_sf(brt_extract)
+auc["BRT"] <- somers2(brt_data$brt, brt_data$ABMA)["C"]
+
+ann_extract <- raster::extract(raw.preds[[1]], sp.data, df = TRUE, sp = TRUE)
+ann_data <- st_as_sf(ann_extract)
+auc["ANN"] <- somers2(ann_data$ann, ann_data$ABMA)["C"]
+
+svm_extract <- raster::extract(raw.preds[[6]], sp.data, df = TRUE, sp = TRUE)
+svm_data <- st_as_sf(svm_extract)
+auc["SVM"] <- somers2(svm_data$svm, svm_data$ABMA)["C"]
+
+auc.df <- as.data.frame(auc) %>%
+  dplyr::rename(mean = ensemble.mean,
+                w_average = ensemble.weighted.average)
+auc.long <- pivot_longer(auc.df, cols = 1:8, names_to = "Model", values_to = "AUC")
+
+ggplot(auc.long, aes(x=Model, y=AUC, label = round(AUC, 2))) + 
+  geom_point(size = 2) + geom_label(size = 5) +
+  labs(title= paste0(scien.nm, ": AUC Comparison"),x="Model Type", y = "AUC") +
+  theme(text = element_text(size = 15, family = "serif"),
+        axis.title.x = element_text(vjust = .25),
+        legend.position = "none")
+#ggsave(paste0(wd$output, 'sdm_output/', sp.file.nm, 'models/AUC_models_ensembles.png'), dpi = 'retina')
+```
+
+### Ensemble thresholds
+```{r ensemble thresholding}
+# threshold for ensemble model
+ensemble_df <- st_set_geometry(ensemble_data, NULL) %>%
+  mutate(id = rownames(ensemble_data))
+ensemble_frame <- rename(ensemble_df, c("Obs" = "ABMA"))
+ensemble_frame <- ensemble_frame %>%
+  dplyr::select(-standard.deviation)
+ensemble_frame <- ensemble_frame[, c(4, 1, 2, 3)]
+opt_ensemble = optimal.thresholds(ensemble_frame)
+print(opt_ensemble)
+write_csv(opt_ensemble, paste0(wd$output, 'models/', sp.file.nm, '/optimal_thresholds_ensemble_model.csv'))
+
+#average
+mean.sens.spec <- calc(ensemble[[1]], fun=function(x){ x[x < opt_ensemble[2,2]] <- 0; return(x)} ) # sets all values below threshold to 0 and retains values above
+writeRaster(mean.sens.spec, paste0(wd$output, 'sdm_outputs/', sp.file.nm, '/BCM1980_2010/ensembles/threshold/mean_sens_spec.tif'), overwrite = TRUE)
+writeRaster(mean.sens.spec, paste0(wd$output, 'sdm_outputs/', sp.file.nm, '/BCM1980_2010/ensembles/threshold/mean_sens_spec.asc'), overwrite = TRUE)
+
+#weighted average
+weight.sens.spec <- calc(ensemble[[2]], fun = function(x){ x[x < opt_ensemble[2,3]] <- 0; return(x)})
+writeRaster(weight.sens.spec, paste0(wd$output, 'sdm_outputs/', sp.file.nm, '/BCM1980_2010/ensembles/threshold/weighted_average_sens_spec.tif'), overwrite = TRUE)
+writeRaster(weight.sens.spec, paste0(wd$output, 'sdm_outputs/', sp.file.nm, '/BCM1980_2010/ensembles/threshold/weighted_average_sens_spec.asc'), overwrite = TRUE)
+
+#ensemble stack
+ensemble.stack <- stack(mean.sens.spec, weight.sens.spec, sd_sdm)
+names(ensemble.stack) <- c('mean', 'weighted.average', 'sd')
+
+#extent(cfp.subset) # use these values to set the extent 
+levelplot(ensemble.stack, main = paste0(scien.nm, ": Ensemble Thresholds"), par.settings = myTheme, xlim=c(-373867.6, 188187.6), ylim=c(-360978.6, 450044)) +
+  layer(sp.polygons(cfp.pol, fill = 'transparent', col = 1))
+```
+
+```{r binary thresholds ensemble}
+#average
+mean.binary <- calc(ensemble[[1]], fun=function(x){ifelse(x <=  opt[2,2], 0, ifelse(x >  opt[2,2], 1, NA))})
+writeRaster(mean.binary, paste0(wd$output, 'sdm_outputs/', sp.file.nm, '/BCM1980_2010/ensembles/threshold/mean_binary.tif'), overwrite = TRUE)
+writeRaster(mean.binary, paste0(wd$output, 'sdm_outputs/', sp.file.nm, '/BCM1980_2010/ensembles/threshold/mean_binary.asc'), overwrite = TRUE)
+
+#weighted average
+weight.binary <- calc(ensemble[[2]], fun= function(x){ifelse(x <=  opt[2,3], 0, ifelse(x >  opt[2,3], 1, NA))})
+writeRaster(weight.binary, paste0(wd$output, 'sdm_outputs/', sp.file.nm, '/BCM1980_2010/ensembles/threshold/weighted_average_binary.tif'), overwrite = TRUE)
+writeRaster(weight.binary, paste0(wd$output, 'sdm_outputs/', sp.file.nm, '/BCM1980_2010/ensembles/threshold/weighted_average_binary.asc'), overwrite = TRUE)
+
+
+#ensemble stack
+binary.ensemble <- stack(mean.binary, weight.binary, sd_sdm)
+names(binary.ensemble) <- c('mean', 'weighted.average', 'sd')
+
+#extent(cfp.subset) # use these values to set the extent 
+levelplot(binary.ensemble, main = paste0(scien.nm, ": Ensemble Binary Maps"), par.settings = myTheme, xlim=c(-373867.6, 188187.6), ylim=c(-360978.6, 450044)) +
+  layer(sp.polygons(cfp.pol, fill = 'transparent', col = 1))
+```
+
+
+

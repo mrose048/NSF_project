@@ -22,6 +22,7 @@ knitr::opts_chunk$set(
 This Rmarkdown provides a template to explore the biogeography of the plant species included in the NSF project titled "Does Geography Play a Bigger Role Than Species Traits in Explaining Vulnerability of Plants to Global Change?" This includes exploring where the distribution of the Cal Dept. of Fish and Wildlife, Jim Thorne vegetation plots, CalFlora, and GBIF data for each species. It outputs a model data frame that can then be used to build species distribution models in the SDM Models Template.Rmd. 
 # Required Datasets:
 To run this document, the user needs access to 
+
 1. Environmental Raster Stack: output/predictors/env_stack/CFP_environmental_stack.grd
 2. Species Presence/Absence Shapefile (Vegetation Plot Data): data/plots/sp_pres_abs.shp
 3. California Florstic Province Shapefile: data/shapefiles/CFP/CFP_GIS.shp
@@ -424,7 +425,7 @@ b <- ggplot(presabs, aes(PC2, PC3)) +
     color = as.factor(survey),
     fill = as.factor(survey)
   ), alpha = 0.1) +
-  labs(title = "PC2 vs. PC3 by survey type")
+  labs(title = "PC2 vs. PC3 by survey type") +
   theme_test()+
   theme(title = element_text(color = 'black', size = 20, family = "serif"),
         legend.position = 'bottom', 
@@ -461,6 +462,9 @@ all.plots <- dplyr::bind_rows(cf.data[9:31], sp.trans) %>%
   st_as_sf() %>%
   st_intersection(st_make_valid(calf.subset)) %>%
   dplyr::select(
+    x_tran,
+    y_tran,
+    ABMA,
     ID,
     wypt_id,
     survey_type,
@@ -468,7 +472,6 @@ all.plots <- dplyr::bind_rows(cf.data[9:31], sp.trans) %>%
     survey,
     source,
     new_id,
-    ABMA,
     aet,
     cwd,
     tmax,
@@ -492,23 +495,26 @@ all.plots <- dplyr::bind_rows(cf.data[9:31], sp.trans) %>%
   mutate(ABMA = ifelse(ABMA == 1, 1, 0)) %>% 
   dplyr::rename(clay = percent_clay)
 
+add_column(study.plots, species = "Abies magnifica", .before = "x_tran")
+
 
 # Below, you can run this code to determine if the there are any duplicate records in your data (Just exploring, does not remove duplicates)
 # plot.coords <- do.call(rbind, st_geometry(study.plots)) %>% 
 # as_tibble() %>% setNames(c("lon","lat")) %>% unique()
   
 
-sp.points <- st_as_sf(subset(study.plots, ABMA == 1))
-sp.absent <- st_as_sf(subset(study.plots, ABMA == 0))
+sp.points <- st_as_sf(subset(all.plots, ABMA == 1))
+sp.absent <- st_as_sf(subset(all.plots, ABMA == 0))
 paste0(nrow(sp.points), " presence points") # presence points
 paste0(nrow(sp.absent), " absence points") # absence points
 
 plot(st_geometry(cfp.trans), main = paste0(scien.nm, ": Presence/Absence Points"))
 plot(st_geometry(calf.subset),add =TRUE, col = 'blue')
-plot(st_geometry(sp.points), add = TRUE, col = 'green', cex = .7)
 plot(st_geometry(sp.absent), add = TRUE, col = 'orange', cex = .4)
-  
-#st_write(plots.unique, paste0(wd$output, paste('plots/', sp.file.nm, '/', 'study_plots', '.shp', sep='')), delete_layer = TRUE)
+plot(st_geometry(sp.points), add = TRUE, col = 'green', cex = .7)
+
+
+st_write(all.plots, paste0(wd$output, paste('plots/', sp.file.nm, '/', 'study_plots', '.shp', sep='')), delete_layer = TRUE)
 ```
 
 ## 8b. Study Plots 
@@ -518,6 +524,9 @@ Finally, I only include plot data that are within this study area (I wouldn't wa
 study.plots <-
   st_intersection(sp.trans, st_make_valid(calf.subset)) %>%
   dplyr::select(
+    x_tran,
+    y_tran,
+    ABMA,
     ID,
     wypt_id,
     survey_type,
@@ -525,7 +534,6 @@ study.plots <-
     survey,
     source,
     new_id,
-    ABMA,
     aet,
     cwd,
     tmax,
@@ -543,11 +551,13 @@ study.plots <-
     awc,
     depth,
     percent_clay,
-    landform
+    landform  
   ) %>%
   dplyr::filter(survey == 'releve' & ABMA == 0 | ABMA== 1) %>%
   mutate(ABMA = ifelse(ABMA ==1, 1, 0))  %>%
   dplyr::rename(clay = percent_clay)
+
+study.plots <- add_column(study.plots, species = "Abies magnifica", .before = "x_tran")
 
 
 sp.points <- st_as_sf(subset(study.plots, ABMA == 1))
@@ -557,9 +567,10 @@ paste0(nrow(sp.absent), " absence points") # absence points
 
 plot(st_geometry(cfp.trans), main = paste0(scien.nm, ": Presence/Absence Points"))
 plot(st_geometry(calf.subset),add =TRUE, col = 'blue')
-plot(st_geometry(sp.points), add = TRUE, col = 'green', cex = .7)
 plot(st_geometry(sp.absent), add = TRUE, col = 'orange', cex = .4)
+plot(st_geometry(sp.points), add = TRUE, col = 'green', cex = .7)
+
 
 
 st_write(study.plots, paste0(wd$output, paste('plots/', sp.file.nm, '/', 'study_plots', '.shp', sep='')), delete_layer = TRUE)
-```
+```                                                      
